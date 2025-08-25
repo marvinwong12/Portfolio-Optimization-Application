@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Update Portfolio</title>
+<style>
+    /* ===== MAIN CONTENT ===== */
+    .content {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem;
+        color: var(--text-primary);
+    }
+
+    h1 {
+        text-align: center;
+        font-size: 2.5rem;
+        margin-bottom: 2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    /* ===== FORM STYLING ===== */
+    .form {
+        margin-top: 2rem;
+        padding: 2rem;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    input[type="text"] {
+        width: 100%;
+        padding: 0.75rem;
+        background-color: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.25rem;
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 1rem;
+        transition: border-color 0.3s ease;
+    }
+
+    input[type="text"]:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(74, 134, 232, 0.2);
+    }
+
+    small {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        display: block;
+        margin-top: 0.25rem;
+    }
+
+    input[type="submit"] {
+        background-color: var(--accent);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        font-size: 1rem;
+        font-weight: 500;
+        transition: background-color 0.3s ease;
+        width: 100%;
+        margin-top: 1rem;
+    }
+
+    input[type="submit"]:hover {
+        background-color: var(--accent-hover);
+    }
+
+    /* ===== PORTFOLIO INFO ===== */
+    .portfolio-info {
+        background-color: var(--bg-card);
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border-left: 4px solid var(--accent);
+    }
+
+    .portfolio-info h2 {
+        margin-top: 0;
+        margin-bottom: 1rem;
+        color: var(--text-primary);
+        font-size: 1.5rem;
+    }
+
+    .portfolio-info p {
+        margin: 0.5rem 0;
+        color: var(--text-secondary);
+    }
+
+    .portfolio-info strong {
+        color: var(--text-primary);
+        margin-right: 0.5rem;
+    }
+
+    /* ===== ANIMATIONS ===== */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .portfolio-info, .form {
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    /* ===== BACK LINK ===== */
+    .back-link {
+        display: inline-block;
+        margin-top: 1.5rem;
+        color: var(--accent);
+        text-decoration: none;
+        transition: color 0.3s ease;
+    }
+
+    .back-link:hover {
+        color: var(--accent-hover);
+        text-decoration: underline;
+    }
+
+    /* ===== RESPONSIVE DESIGN ===== */
+    @media (max-width: 768px) {
+        .content {
+            padding: 1rem;
+        }
+        
+        h1 {
+            font-size: 2rem;
+        }
+        
+        .form {
+            padding: 1.5rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="content">
+    <h1>Update Portfolio</h1>
+    
+    <div class="portfolio-info">
+        <h2>{{ portfolio.name }}</h2>
+        <p><strong>Current Stocks:</strong> {{ portfolio.stocks }}</p>
+        {% if portfolio.description %}
+        <p><strong>Description:</strong> {{ portfolio.description }}</p>
+        {% endif %}
+        <p><strong>Created:</strong> {{ portfolio.date_created.date() }}</p>
+    </div>
+
+    <div class="form">
+        <form action="/update/{{portfolio.id}}" method="POST">
+            <div class="form-group">
+                <label for="stocks">Stock Symbols</label>
+                <input type="text" name="stocks" id="stocks" value="{{portfolio.stocks}}" 
+                       placeholder="AAPL, MSFT, GOOGL, TSLA" required>
+                <small>Enter stock tickers separated by commas (e.g., AAPL, MSFT, GOOGL)</small>
+            </div>
+            
+            <input type="submit" value="Update Portfolio">
+        </form>
+        
+        <a href="/" class="back-link">← Back to All Portfolios</a>
+    </div>
+</div>
+{% endblock %}

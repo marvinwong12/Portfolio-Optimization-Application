@@ -1,0 +1,610 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Portfolio Analysis - {{ portfolio.name }}</title>
+<style>
+    /* ===== BASE STYLING ===== */
+    .content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text-primary);
+    }
+
+    h1 {
+        text-align: center;
+        font-size: 2.5rem;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    h2 {
+        color: var(--text-primary);
+        font-size: 1.8rem;
+        margin-bottom: 1.5rem;
+        font-weight: 500;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid var(--accent);
+    }
+
+    h3 {
+        color: var(--text-primary);
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+        font-weight: 500;
+    }
+
+    h4 {
+        color: var(--text-secondary);
+        font-size: 1.1rem;
+        margin-bottom: 0.75rem;
+        font-weight: 500;
+    }
+
+    /* ===== PORTFOLIO SECTIONS ===== */
+    .portfolio-section {
+        margin: 2rem 0;
+        padding: 2rem;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .portfolio-section:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    /* ===== TABLES ===== */
+    .portfolio-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .portfolio-table th {
+        background-color: rgba(74, 134, 232, 0.2);
+        color: var(--text-primary);
+        padding: 1rem;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--accent);
+    }
+
+    .portfolio-table td {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .portfolio-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .portfolio-table tr:hover td {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    /* ===== WEIGHTS TABLES ===== */
+    .weights-table-container {
+        margin: 1.5rem 0;
+        padding: 1.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 0.5rem;
+    }
+
+    .weights-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .weights-table th {
+        background-color: rgba(74, 134, 232, 0.25);
+        color: var(--text-primary);
+        padding: 1rem;
+        text-align: left;
+        font-weight: 600;
+    }
+
+    .weights-table td {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .weights-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .total-row {
+        background-color: rgba(74, 134, 232, 0.15);
+        font-weight: 600;
+    }
+
+    .total-row td {
+        border-top: 2px solid var(--accent);
+    }
+
+    /* ===== CHARTS CONTAINER ===== */
+    .chart-container {
+        margin: 2rem 0;
+        text-align: center;
+        padding: 1.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 0.5rem;
+    }
+
+    .chart-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        transition: transform 0.3s ease;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .chart-container img:hover {
+        transform: scale(1.02);
+    }
+
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1.5rem;
+        margin: 1.5rem 0;
+    }
+
+    /* ===== METRIC CARDS ===== */
+    .metric-card {
+        background-color: rgba(74, 134, 232, 0.15);
+        color: var(--text-primary);
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        border-left: 4px solid var(--accent);
+    }
+
+    .metric-card strong {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    /* ===== PORTFOLIO DETAILS ===== */
+    .portfolio-details {
+        background-color: rgba(74, 134, 232, 0.2);
+        color: var(--text-primary);
+        padding: 2rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+        border-left: 4px solid var(--accent);
+    }
+
+    .portfolio-details p {
+        margin: 0.75rem 0;
+        font-size: 1.1rem;
+    }
+
+    .portfolio-details strong {
+        font-weight: 600;
+        margin-right: 0.5rem;
+        color: var(--accent);
+    }
+
+    /* ===== BADGES AND TAGS ===== */
+    .badge {
+        display: inline-block;
+        padding: 0.35rem 0.75rem;
+        border-radius: 1rem;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .badge-positive {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4CAF50;
+    }
+
+    .badge-negative {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #F44336;
+    }
+
+    .badge-neutral {
+        background-color: rgba(149, 165, 166, 0.2);
+        color: #95A5A6;
+    }
+
+    /* ===== RESPONSIVE DESIGN ===== */
+    @media (max-width: 768px) {
+        .content {
+            padding: 1rem;
+        }
+
+        .portfolio-section {
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .charts-grid {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        .portfolio-table {
+            font-size: 0.9rem;
+        }
+
+        .portfolio-table th,
+        .portfolio-table td {
+            padding: 0.75rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+        }
+    }
+
+    /* ===== ANIMATIONS ===== */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .portfolio-section {
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    .portfolio-section:nth-child(2) { animation-delay: 0.1s; }
+    .portfolio-section:nth-child(3) { animation-delay: 0.2s; }
+    .portfolio-section:nth-child(4) { animation-delay: 0.3s; }
+    .portfolio-section:nth-child(5) { animation-delay: 0.4s; }
+
+    /* ===== SCROLLBAR STYLING ===== */
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--accent);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-hover);
+    }
+
+    /* ===== PRINT STYLES ===== */
+    @media print {
+        .content {
+            background: white !important;
+            color: black !important;
+        }
+
+        .portfolio-section {
+            box-shadow: none !important;
+            border: 1px solid #ccc !important;
+        }
+
+        .chart-container img {
+            box-shadow: none !important;
+            border: 1px solid #ccc !important;
+        }
+    }
+
+    /* ===== ICON STYLING ===== */
+    .icon {
+        margin-right: 0.5rem;
+        color: var(--accent);
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="content">
+    <h1><span class="icon"></span>Portfolio Analysis: {{ portfolio.name }}</h1>
+
+    <div><a href="/" class="back-link">← Back to All Portfolios</a></div>
+    
+    <!-- Portfolio Details -->
+    <div class="portfolio-details">
+        <h2><span class="icon">📋</span>Portfolio Overview</h2>
+        <p><strong>Stocks:</strong> {{ symbols|join(', ') }}</p>
+        {% if portfolio.description %}
+        <p><strong>Description:</strong> {{ portfolio.description }}</p>
+        {% endif %}
+        <p><strong>Analysis Period:</strong> Last 3 years</p>
+        <p><strong>Number of Assets:</strong> {{ symbols|length }}</p>
+    </div>
+
+    <!-- Portfolio Comparison -->
+    <div class="portfolio-section">
+        <h2><span class="icon">⚖️</span>Strategy Comparison</h2>
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>Return</th>
+                        <th>Volatility</th>
+                        <th>Sharpe Ratio</th>
+                        {% if market_available %}
+                        <th>Beta</th>
+                        <th>Treynor Ratio</th>
+                        <th>Jensen's Alpha</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, data in comparison.items() %}
+                    <tr>
+                        <td><strong>{{ name }}</strong></td>
+                        <td>
+                            <span class="badge {% if data.return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(data.return * 100) }}%
+                            </span>
+                        </td>
+                        <td>{{ "%.2f"|format(data.volatility * 100) }}%</td>
+                        <td>
+                            <span class="badge {% if data.sharpe_ratio > 1 %}badge-positive{% elif data.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(data.sharpe_ratio) }}
+                            </span>
+                        </td>
+                        {% if market_available %}
+                        <td>{{ "%.2f"|format(data.beta) if data.beta is not none else 'N/A' }}</td>
+                        <td>{{ "%.2f"|format(data.treynor_ratio) if data.treynor_ratio is not none else 'N/A' }}</td>
+                        <td>
+                            {% if data.jensen_alpha is not none %}
+                                <span class="badge {% if data.jensen_alpha > 0 %}badge-positive{% else %}badge-negative{% endif %}">
+                                    {{ "%.2f"|format(data.jensen_alpha * 100) }}%
+                                </span>
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Portfolio Weights -->
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Asset Allocation</h2>
+        
+        {% for portfolio_name, weights in portfolio_weights.items() %}
+        <div class="weights-table-container">
+            <h3><span class="icon"></span>{{ portfolio_name }} Allocation</h3>
+            <div style="overflow-x: auto;">
+                <table class="weights-table">
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Weight</th>
+                            <th>Allocation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for symbol, weight in weights.items() %}
+                        {% if weight > 0.001 %}
+                        <tr>
+                            <td><strong>{{ symbol }}</strong></td>
+                            <td>{{ "%.4f"|format(weight) }}</td>
+                            <td>{{ "%.1f"|format(weight * 100) }}%</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                        <tr class="total-row">
+                            <td><strong>Total Allocation</strong></td>
+                            <td><strong>{{ "%.4f"|format(weights.values()|sum) }}</strong></td>
+                            <td><strong>{{ "%.1f"|format(weights.values()|sum * 100) }}%</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Visualizations -->
+    {% if image_paths %}
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Visual Analytics</h2>
+        
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3><span class="icon"></span>Efficient Frontier</h3>
+                <img src="{{ url_for('static', filename=image_paths.efficient_frontier.replace('static/', '')) }}" 
+                     alt="Efficient Frontier Analysis">
+            </div>
+
+            <div class="chart-container">
+                <h3><span class="icon"></span>Correlation Matrix</h3>
+                <img src="{{ url_for('static', filename=image_paths.correlation_matrix.replace('static/', '')) }}" 
+                     alt="Asset Correlation Matrix">
+            </div>
+
+            <div class="chart-container">
+                <h3><span class="icon"></span>Cumulative Returns</h3>
+                <img src="{{ url_for('static', filename=image_paths.cumulative_returns.replace('static/', '')) }}" 
+                     alt="Cumulative Returns Over Time">
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h3><span class="icon"></span>Portfolio Weights Distribution</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                <div>
+                    <h4>Minimum Variance</h4>
+                    <img src="{{ url_for('static', filename=image_paths.weights_min_var.replace('static/', '')) }}" 
+                         alt="Minimum Variance Weights">
+                </div>
+                <div>
+                    <h4>Tangency Portfolio</h4>
+                    <img src="{{ url_for('static', filename=image_paths.weights_tangency.replace('static/', '')) }}" 
+                         alt="Tangency Portfolio Weights">
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Individual Performance -->
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Individual Asset Performance</h2>
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Asset</th>
+                        <th>Annual Return</th>
+                        <th>Annual Volatility</th>
+                        <th>Sharpe Ratio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for symbol, performance in asset_performance.items() %}
+                    <tr>
+                        <td><strong>{{ symbol }}</strong></td>
+                        <td>
+                            <span class="badge {% if performance.return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(performance.return * 100) }}%
+                            </span>
+                        </td>
+                        <td>{{ "%.2f"|format(performance.volatility * 100) }}%</td>
+                        <td>
+                            <span class="badge {% if performance.sharpe_ratio > 1 %}badge-positive{% elif performance.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(performance.sharpe_ratio) }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Analysis Details -->
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Analysis Parameters</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <strong>Risk-Free Rate</strong>
+                <span>
+                    {% if analysis_details.risk_free_rate is not none %}
+                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (daily)
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Analysis Period</strong>
+                <span>
+                    {% if analysis_details.start_date and analysis_details.end_date %}
+                        {{ analysis_details.start_date }} to {{ analysis_details.end_date }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Trading Days</strong>
+                <span>
+                    {% if analysis_details.trading_days %}
+                        {{ analysis_details.trading_days }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Portfolio Type</strong>
+                <span>Long-only Constrained</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript for interactive features -->
+<script>
+    // Add hover effects and tooltips
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add tooltips to metrics
+        const metrics = document.querySelectorAll('.metric-card');
+        metrics.forEach(metric => {
+            metric.title = 'Click to learn more about this metric';
+            metric.style.cursor = 'pointer';
+        });
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Print functionality
+        const printButton = document.createElement('button');
+        printButton.textContent = '🖨️ Print Report';
+        printButton.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-weight: 500;
+            font-family: inherit;
+        `;
+        printButton.onclick = () => window.print();
+        document.body.appendChild(printButton);
+    });
+</script>
+{% endblock %}
