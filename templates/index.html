@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block head %}
-<title>All Portfolios</title>
+<title>Portfolio and Stock Analysis</title>
 <style>
     /* ===== MAIN CONTENT ===== */
     .content {
@@ -203,7 +203,9 @@
 
 {% block body %}
 <div class="content">
-    <h1>All Portfolios</h1>
+    <h1>Portfolio and Stock Analysis</h1>
+
+    <h2>All Portfolios</h2>
     
     {% if portfolios|length < 1 %}
     <div class="empty-state">
@@ -212,37 +214,35 @@
     </div>
     {% else %}
     <table>
-        <thead>
-            <tr>
-                <th>Portfolio Name</th>
-                <th>Stocks</th>
-                <th>Description</th>
-                <th>Date Added</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for portfolio in portfolios %}
-            <tr>
-                <td><strong>{{ portfolio.name }}</strong></td>
-                <td>{{ portfolio.stocks }}</td>
-                <td>{{ portfolio.description or 'No description' }}</td>
-                <td>{{ portfolio.date_created.date() }}</td>
-                <td>
-                    <div class="action-links">
-                        <a href="access/{{portfolio.id}}">Access</a>
-                        <a href="/delete/{{portfolio.id}}">Delete</a>
-                        <a href="/update/{{portfolio.id}}">Update</a>
-                    </div>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
+        <tr>
+            <th>Portfolio Name</th>
+            <th>Stocks</th>
+            <th>Description</th>
+            <th>Type</th>  <!-- Add this column -->
+            <th>Date Added</th>
+            <th>Actions</th>
+        </tr>
+        {% for portfolio in portfolios %}
+        <tr>
+            <td>{{ portfolio.name }}</td>
+            <td>{{ portfolio.stocks }}</td>
+            <td>{{ portfolio.description or 'No description' }}</td>
+            <td>{{ 'Long-only' if portfolio.long_only else 'Long-short' }}</td>  <!-- Add this cell -->
+            <td>{{ portfolio.date_created.date() }}</td>
+            <td>
+                <a href="access/{{portfolio.id}}">Access</a>
+                <br>
+                <a href="/delete/{{portfolio.id}}">Delete</a>
+                <br>
+                <a href="/update/{{portfolio.id}}">Update</a>
+            </td>
+        </tr>
+        {% endfor %}
     </table>
     {% endif %}
     
     <div class="form">
-        <h2 style="margin-top: 0; margin-bottom: 1.5rem;">Create New Portfolio</h2>
+        <h3 style="margin-top: 0; margin-bottom: 1.5rem;">Create New Portfolio</h3>
         <form action="/" method="POST">
             <div class="form-group">
                 <label for="name">Portfolio Name</label>
@@ -256,6 +256,15 @@
                        placeholder="AAPL, MSFT, GOOGL, TSLA">
                 <small>Enter stock tickers separated by commas (e.g., AAPL, MSFT, GOOGL)</small>
             </div>
+
+            <div class="form-group">
+                <label for="long_only">Portfolio Type:</label>
+                <select name="long_only" id="long_only" required>
+                    <option value="true" selected>Long-only (No short selling)</option>
+                    <option value="false">Long-short (Allow short selling)</option>
+                </select>
+            </div>
+            
             
             <div class="form-group">
                 <label for="description">Description (optional)</label>
@@ -264,6 +273,19 @@
             </div>
             
             <input type="submit" value="Add Portfolio">
+        </form>
+    </div>
+    <!-- Add this section after your portfolio creation form -->
+    <div class="form" style="margin-top: 30px;">
+        <h2>Individual Stock Analysis</h2>
+        <form action="/analyze_stock" method="POST">
+            <div class="form-group">
+                <label for="ticker_symbol">Stock Ticker Symbol:</label>
+                <input type="text" name="ticker_symbol" id="ticker_symbol" required 
+                    placeholder="e.g., AAPL, MSFT, GOOGL">
+            </div>
+            
+            <input type="submit" value="Analyze Stock">
         </form>
     </div>
 </div>

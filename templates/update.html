@@ -177,6 +177,13 @@
                        placeholder="AAPL, MSFT, GOOGL, TSLA" required>
                 <small>Enter stock tickers separated by commas (e.g., AAPL, MSFT, GOOGL)</small>
             </div>
+            <div class="form-group">
+                <label for="long_only">Portfolio Type:</label>
+                <select name="long_only" id="long_only" required>
+                    <option value="true" {% if portfolio.long_only %}selected{% endif %}>Long-only (No short selling)</option>
+                    <option value="false" {% if not portfolio.long_only %}selected{% endif %}>Long-short (Allow short selling)</option>
+                </select>
+            </div>
             
             <input type="submit" value="Update Portfolio">
         </form>

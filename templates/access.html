@@ -334,6 +334,7 @@
 {% endblock %}
 
 {% block body %}
+
 <div class="content">
     <h1><span class="icon"></span>Portfolio Analysis: {{ portfolio.name }}</h1>
 
@@ -341,7 +342,7 @@
     
     <!-- Portfolio Details -->
     <div class="portfolio-details">
-        <h2><span class="icon">📋</span>Portfolio Overview</h2>
+        <h2><span class="icon"></span>Portfolio Overview</h2>
         <p><strong>Stocks:</strong> {{ symbols|join(', ') }}</p>
         {% if portfolio.description %}
         <p><strong>Description:</strong> {{ portfolio.description }}</p>
@@ -352,7 +353,7 @@
 
     <!-- Portfolio Comparison -->
     <div class="portfolio-section">
-        <h2><span class="icon">⚖️</span>Strategy Comparison</h2>
+        <h2><span class="icon"></span>Strategy Comparison</h2>
         <div style="overflow-x: auto;">
             <table class="portfolio-table">
                 <thead>
@@ -442,27 +443,24 @@
     </div>
 
     <!-- Visualizations -->
-    {% if image_paths %}
+    {% if image_data %}
     <div class="portfolio-section">
         <h2><span class="icon"></span>Visual Analytics</h2>
         
         <div class="charts-grid">
             <div class="chart-container">
                 <h3><span class="icon"></span>Efficient Frontier</h3>
-                <img src="{{ url_for('static', filename=image_paths.efficient_frontier.replace('static/', '')) }}" 
-                     alt="Efficient Frontier Analysis">
+                <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
             </div>
 
             <div class="chart-container">
                 <h3><span class="icon"></span>Correlation Matrix</h3>
-                <img src="{{ url_for('static', filename=image_paths.correlation_matrix.replace('static/', '')) }}" 
-                     alt="Asset Correlation Matrix">
+                <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
             </div>
 
             <div class="chart-container">
                 <h3><span class="icon"></span>Cumulative Returns</h3>
-                <img src="{{ url_for('static', filename=image_paths.cumulative_returns.replace('static/', '')) }}" 
-                     alt="Cumulative Returns Over Time">
+                <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
             </div>
         </div>
 
@@ -471,13 +469,11 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
                 <div>
                     <h4>Minimum Variance</h4>
-                    <img src="{{ url_for('static', filename=image_paths.weights_min_var.replace('static/', '')) }}" 
-                         alt="Minimum Variance Weights">
+                    <img src="data:image/png;base64,{{ image_data.weights_min_var }}" alt="Minimum Variance Portfolio Weights">
                 </div>
                 <div>
                     <h4>Tangency Portfolio</h4>
-                    <img src="{{ url_for('static', filename=image_paths.weights_tangency.replace('static/', '')) }}" 
-                         alt="Tangency Portfolio Weights">
+                    <img src="data:image/png;base64,{{ image_data.weights_tangency }}" alt="Tangency Portfolio Weights"/>
                 </div>
             </div>
         </div>

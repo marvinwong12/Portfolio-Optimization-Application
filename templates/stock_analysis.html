@@ -1,0 +1,365 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Stock Analysis - {{ symbol }}</title>
+<style>
+    .analysis-section {
+        margin: 25px 0;
+        padding: 30px;
+        background-color: var(--bg-card);
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        border-left: 5px solid var(--accent);
+    }
+    
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+    }
+    
+    .metric-card {
+        background-color: rgba(74, 134, 232, 0.15);
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid var(--accent);
+    }
+    
+    .metric-value {
+        font-size: 1.4rem;
+        font-weight: 600;
+        margin: 5px 0;
+    }
+    
+    .metric-label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .positive {
+        color: #4CAF50;
+    }
+    
+    .negative {
+        color: #F44336;
+    }
+    
+    .neutral {
+        color: #FF9800;
+    }
+    
+    .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 15px 0;
+    }
+    
+    .comparison-table th, .comparison-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .comparison-table th {
+        background-color: rgba(74, 134, 232, 0.2);
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="content">
+    <h1>Stock Analysis: {{ symbol }}</h1>
+    
+    {% if error %}
+    <div class="analysis-section" style="border-left-color: #F44336;">
+        <h2>Error</h2>
+        <p>There was an error analyzing {{ symbol }}: {{ error }}</p>
+        <a href="/" class="btn">Return to Home</a>
+    </div>
+    {% else %}
+    
+    <!-- Basic Information -->
+    <div class="analysis-section">
+        <h2>Basic Information</h2>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Company Name</div>
+                <div class="metric-value">{{ analysis.basic_info.name }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Sector</div>
+                <div class="metric-value">{{ analysis.basic_info.sector or 'N/A' }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Industry</div>
+                <div class="metric-value">{{ analysis.basic_info.industry or 'N/A' }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Market Cap</div>
+                <div class="metric-value">
+                    {% if analysis.basic_info.market_cap %}
+                        ${{ "{:,.2f}".format(analysis.basic_info.market_cap / 1e9) }}B
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Current Price</div>
+                <div class="metric-value">
+                    {% if analysis.basic_info.current_price %}
+                        ${{ "%.2f"|format(analysis.basic_info.current_price) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">52 Week Range</div>
+                <div class="metric-value">
+                    {% if analysis.basic_info['52_week_low'] and analysis.basic_info['52_week_high'] %}
+                        ${{ "%.2f"|format(analysis.basic_info['52_week_low']) }} - ${{ "%.2f"|format(analysis.basic_info['52_week_high']) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Performance Metrics -->
+    <div class="analysis-section">
+        <h2>Performance & Risk Metrics</h2>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Annualized Return</div>
+                <div class="metric-value {% if analysis.performance_metrics.annualized_return > 0 %}positive{% else %}negative{% endif %}">
+                    {{ "%.2f"|format(analysis.performance_metrics.annualized_return * 100) }}%
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Annualized Volatility</div>
+                <div class="metric-value">
+                    {{ "%.2f"|format(analysis.performance_metrics.annualized_volatility * 100) }}%
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Sharpe Ratio</div>
+                <div class="metric-value {% if analysis.performance_metrics.sharpe_ratio > 1 %}positive{% elif analysis.performance_metrics.sharpe_ratio > 0 %}neutral{% else %}negative{% endif %}">
+                    {{ "%.2f"|format(analysis.performance_metrics.sharpe_ratio) }}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Beta</div>
+                <div class="metric-value">
+                    {% if analysis.performance_metrics.beta is not none %}
+                        {{ "%.2f"|format(analysis.performance_metrics.beta) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Max Drawdown</div>
+                <div class="metric-value negative">
+                    {{ "%.2f"|format(analysis.performance_metrics.max_drawdown * 100) }}%
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">95% VaR</div>
+                <div class="metric-value negative">
+                    {{ "%.2f"|format(analysis.performance_metrics.var_95 * 100) }}%
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Valuation Ratios -->
+    <div class="analysis-section">
+        <h2>Valuation Ratios</h2>
+        <div class="metric-grid">
+            {% for ratio, value in analysis.valuation_ratios.items() %}
+            <div class="metric-card">
+                <div class="metric-label">{{ ratio|replace('_', ' ')|title }}</div>
+                <div class="metric-value">
+                    {% if value is not none %}
+                        {{ "%.2f"|format(value) if value is number else value }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            
+            <!-- DCF Valuation -->
+            <div class="metric-card">
+                <div class="metric-label">DCF Fair Value</div>
+                <div class="metric-value {% if analysis.dcf_valuation and analysis.basic_info.current_price and analysis.dcf_valuation > analysis.basic_info.current_price %}positive{% elif analysis.dcf_valuation and analysis.basic_info.current_price %}negative{% endif %}">
+                    {% if analysis.dcf_valuation %}
+                        ${{ "%.2f"|format(analysis.dcf_valuation) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Profitability Metrics -->
+    <div class="analysis-section">
+        <h2>Profitability Metrics</h2>
+        <div class="metric-grid">
+            {% for metric, value in analysis.profitability_metrics.items() %}
+            <div class="metric-card">
+                <div class="metric-label">{{ metric|replace('_', ' ')|title }}</div>
+                <div class="metric-value {% if value is not none and value > 0 %}positive{% elif value is not none and value < 0 %}negative{% endif %}">
+                    {% if value is not none %}
+                        {{ "%.2f"|format(value * 100) if 'margin' in metric or 'return' in metric else "%.2f"|format(value) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Dividend Analysis -->
+    <div class="analysis-section">
+        <h2>Dividend Analysis</h2>
+        <div class="metric-grid">
+            {% for metric, value in analysis.dividend_analysis.items() %}
+            {% if metric != 'has_dividends' and metric != 'dividend_frequency' %}
+            <div class="metric-card">
+                <div class="metric-label">{{ metric|replace('_', ' ')|title }}</div>
+                <div class="metric-value">
+                    {% if value is not none %}
+                        {% if metric == 'last_dividend' %}
+                            ${{ "%.2f"|format(value) }}
+                        {% elif value is number %}
+                            {{ "%.2f"|format(value * 100) }}%
+                        {% else %}
+                            {{ value }}
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+            
+            <div class="metric-card">
+                <div class="metric-label">Dividend Frequency</div>
+                <div class="metric-value">{{ analysis.dividend_analysis.dividend_frequency }}</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Pays Dividends</div>
+                <div class="metric-value">{{ 'Yes' if analysis.dividend_analysis.has_dividends else 'No' }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Technical Indicators -->
+    <div class="analysis-section">
+        <h2>Technical Indicators</h2>
+        <div class="metric-grid">
+            {% for indicator, value in analysis.technical_indicators.items() %}
+            <div class="metric-card">
+                <div class="metric-label">{{ indicator|replace('_', ' ')|upper }}</div>
+                <div class="metric-value">
+                    {% if value is not none %}
+                        {% if 'rsi' in indicator %}
+                            {{ "%.2f"|format(value) }}
+                            <div class="metric-label">
+                                {% if value > 70 %}Overbought{% elif value < 30 %}Oversold{% else %}Neutral{% endif %}
+                            </div>
+                        {% elif 'bollinger' in indicator %}
+                            ${{ "%.2f"|format(value) }}
+                        {% else %}
+                            {{ "%.2f"|format(value) }}
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Analyst Recommendations -->
+    <div class="analysis-section">
+        <h2>Analyst Sentiment</h2>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Recommendation</div>
+                <div class="metric-value">{{ analysis.analyst_data.recommendation|title if analysis.analyst_data.recommendation else 'N/A' }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Target Price</div>
+                <div class="metric-value {% if analysis.analyst_data.target_price and analysis.basic_info.current_price and analysis.analyst_data.target_price > analysis.basic_info.current_price %}positive{% elif analysis.analyst_data.target_price and analysis.basic_info.current_price %}negative{% endif %}">
+                    {% if analysis.analyst_data.target_price %}
+                        ${{ "%.2f"|format(analysis.analyst_data.target_price) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Number of Analysts</div>
+                <div class="metric-value">{{ analysis.analyst_data.number_of_analysts or 'N/A' }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Relative Valuation (if available) -->
+    {% if analysis.relative_valuation %}
+    <div class="analysis-section">
+        <h2>Relative Valuation vs Peers</h2>
+        
+        <h3>Valuation Multiples Comparison</h3>
+        <div style="overflow-x: auto;">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>{{ symbol }}</th>
+                        {% for peer in analysis.relative_valuation.peers.keys() %}
+                        <th>{{ peer }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for metric in analysis.relative_valuation.base_company.keys() %}
+                    <tr>
+                        <td>{{ metric|replace('_', ' ')|title }}</td>
+                        <td>{{ "%.2f"|format(analysis.relative_valuation.base_company[metric]) if analysis.relative_valuation.base_company[metric] is number else analysis.relative_valuation.base_company[metric] or 'N/A' }}</td>
+                        {% for peer, peer_metrics in analysis.relative_valuation.peers.items() %}
+                        <td>
+                            {% if peer_metrics[metric] is not none and peer_metrics[metric] != 'Error fetching data' %}
+                                {{ "%.2f"|format(peer_metrics[metric]) if peer_metrics[metric] is number else peer_metrics[metric] or 'N/A' }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div style="text-align: center; margin-top: 30px;">
+        <a href="/" class="btn">Return to Portfolio Analysis</a>
+    </div>
+    
+    {% endif %}
+</div>
+{% endblock %}

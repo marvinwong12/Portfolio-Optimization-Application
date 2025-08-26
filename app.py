@@ -12,6 +12,8 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.covariance import OAS, LedoitWolf
+import io
+import base64
 
 # Initialize Flask application
 app = Flask(__name__)
@@ -272,22 +274,33 @@ class PortfolioAnalyzer:
             np.array: Portfolio weights
         """
         n = len(self.mean_returns)
-        ones = np.ones(n)
-        try:
-            # Use matrix inversion to calculate minimum variance weights
-            inv_cov = np.linalg.inv(self.cov_matrix)
-            denominator = np.dot(ones.T, np.dot(inv_cov, ones))
-            weights = np.dot(inv_cov, ones) / denominator
-            
-            if self.long_only:
-                 # Ensure no negative weights (long-only constraint)
+        
+        if self.long_only:
+            # Long-only constraint (existing code)
+            ones = np.ones(n)
+            try:
+                inv_cov = np.linalg.inv(self.cov_matrix)
+                denominator = np.dot(ones.T, np.dot(inv_cov, ones))
+                weights = np.dot(inv_cov, ones) / denominator
+                
+                # Ensure no negative weights (long-only constraint)
                 weights = np.maximum(weights, 0)
                 weights /= weights.sum()
                 
-            return weights
-        except np.linalg.LinAlgError:
-            # Fallback to equal weights if matrix is singular
-            return np.ones(n) / n
+                return weights
+            except np.linalg.LinAlgError:
+                # Fallback to equal weights if matrix is singular
+                return np.ones(n) / n
+        else:
+            # Long-short portfolio (no constraints)
+            try:
+                inv_cov = np.linalg.inv(self.cov_matrix)
+                ones = np.ones(n)
+                weights = np.dot(inv_cov, ones) / np.dot(ones.T, np.dot(inv_cov, ones))
+                return weights
+            except np.linalg.LinAlgError:
+                # Fallback to equal weights
+                return np.ones(n) / n
     
     def tangency_portfolio(self):
         """
@@ -298,21 +311,33 @@ class PortfolioAnalyzer:
         """
         n = len(self.mean_returns)
         excess_returns = self.mean_returns - self.risk_free_rate
-        try:
-            # Use matrix inversion to calculate tangency portfolio weights
-            inv_cov = np.linalg.inv(self.cov_matrix)
-            weights = np.dot(inv_cov, excess_returns)
-            weights /= weights.sum()
-            
-            if self.long_only:
-                 # Ensure no negative weights (long-only constraint)
+        
+        if self.long_only:
+            # Long-only constraint (existing code)
+            try:
+                inv_cov = np.linalg.inv(self.cov_matrix)
+                weights = np.dot(inv_cov, excess_returns)
+                weights /= weights.sum()
+                
+                # Ensure no negative weights (long-only constraint)
                 weights = np.maximum(weights, 0)
                 weights /= weights.sum()
                 
-            return weights
-        except np.linalg.LinAlgError:
-            # Fallback to equal weights
-            return np.ones(n) / n
+                return weights
+            except np.linalg.LinAlgError:
+                # Fallback to equal weights
+                return np.ones(n) / n
+        else:
+            # Long-short portfolio (no constraints)
+            try:
+                inv_cov = np.linalg.inv(self.cov_matrix)
+                weights = np.dot(inv_cov, excess_returns)
+                # Normalize weights but allow negative values
+                weights /= np.sum(np.abs(weights))  # Use absolute sum for normalization
+                return weights
+            except np.linalg.LinAlgError:
+                # Fallback to equal weights
+                return np.ones(n) / n
     
     def monte_carlo_simulation(self, num_portfolios=10000):
         """
@@ -330,8 +355,15 @@ class PortfolioAnalyzer:
         
         # Generate random portfolios
         for i in range(num_portfolios):
-            weights = np.random.random(n)
-            weights /= np.sum(weights)
+            if self.long_only:
+                # Long-only: weights between 0 and 1
+                weights = np.random.random(n)
+                weights /= np.sum(weights)
+            else:
+                # Long-short: weights between -1 and 1
+                weights = np.random.uniform(-1, 1, n)
+                weights /= np.sum(np.abs(weights))  # Normalize by absolute sum
+            
             weights_record.append(weights)
             
             # Calculate portfolio metrics
@@ -356,7 +388,17 @@ class PortfolioVisualizer:
         plot_correlation_matrix: Plot correlation matrix heatmap
         plot_returns_time_series: Plot cumulative returns over time
     """
-    
+    @staticmethod
+    def plot_to_base64():
+        """Convert current matplotlib figure to base64 string"""
+        img = io.BytesIO()
+        plt.savefig(img, format='png', bbox_inches='tight', dpi=100)
+        img.seek(0)
+        plot_data = base64.b64encode(img.getvalue()).decode('utf8')
+        plt.close()  # Make sure to close the figure
+        plt.clf()    # Clear the current figure
+        return plot_data
+
     @staticmethod
     def plot_efficient_frontier(returns, volatilities, sharpe_ratios, optimal_portfolio=None, save_path=None):
         """
@@ -383,33 +425,56 @@ class PortfolioVisualizer:
         
         plt.grid(True, alpha=0.3)
         
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight', dpi=100)
-            plt.close()
-        else:
-            plt.show()
+        return PortfolioVisualizer.plot_to_base64()
     
     @staticmethod
-    def plot_weights(weights, symbols, title, save_path=None):
+    def plot_weights(weights, symbols, title, long_only=True):
         """
-        Plot portfolio weights as a pie chart.
+        Plot portfolio weights as a pie chart (long-only) or bar chart (long-short).
         
         Args:
             weights (np.array): Portfolio weights
             symbols (list): Asset symbols
             title (str): Chart title
-            save_path (str): Path to save the plot
+            long_only (bool): Whether the portfolio is long-only or long-short
+            
+        Returns:
+            str: Base64 encoded image data
         """
-        plt.figure(figsize=(10, 6))
-        colors = plt.cm.Set3(np.linspace(0, 1, len(weights)))
-        wedges, texts, autotexts = plt.pie(weights, labels=symbols, autopct='%1.1f%%', colors=colors)
-        plt.title(title)
-        
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight', dpi=100)
-            plt.close()
+        if long_only:
+            # Use pie chart for long-only portfolios
+            plt.figure(figsize=(10, 6))
+            colors = plt.cm.Set3(np.linspace(0, 1, len(weights)))
+            wedges, texts, autotexts = plt.pie(weights, labels=symbols, autopct='%1.1f%%', colors=colors)
+            plt.title(title)
         else:
-            plt.show()
+            # Use bar chart for long-short portfolios (to handle negative values)
+            plt.figure(figsize=(12, 6))
+            
+            # Create color array: green for positive, red for negative
+            colors = ['green' if w >= 0 else 'red' for w in weights]
+            
+            # Create bar chart
+            bars = plt.bar(symbols, weights, color=colors, alpha=0.7)
+            
+            # Add value labels on top of bars
+            for i, (symbol, weight) in enumerate(zip(symbols, weights)):
+                plt.text(i, weight + (0.01 if weight >= 0 else -0.03), 
+                        f'{weight:.2%}', ha='center', va='bottom' if weight >= 0 else 'top')
+            
+            plt.title(title)
+            plt.xlabel('Assets')
+            plt.ylabel('Weight')
+            plt.xticks(rotation=45, ha='right')
+            plt.grid(True, alpha=0.3, axis='y')
+            
+            # Add horizontal line at zero
+            plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+            
+            # Adjust layout to prevent label cutoff
+            plt.tight_layout()
+        
+        return PortfolioVisualizer.plot_to_base64()
     
     @staticmethod
     def plot_correlation_matrix(correlation_matrix, save_path=None):
@@ -427,11 +492,7 @@ class PortfolioVisualizer:
         plt.title('Asset Correlation Matrix')
         plt.tight_layout()
         
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight', dpi=100)
-            plt.close()
-        else:
-            plt.show()
+        return PortfolioVisualizer.plot_to_base64()
     
     @staticmethod
     def plot_returns_time_series(returns_data, save_path=None):
@@ -452,11 +513,7 @@ class PortfolioVisualizer:
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
         
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight', dpi=100)
-            plt.close()
-        else:
-            plt.show()
+        return PortfolioVisualizer.plot_to_base64()
 
 
 class PortfolioApp:
@@ -490,7 +547,7 @@ class PortfolioApp:
         self.market_data = None
         self.analysis_results = {}
     
-    def fetch_data(self, symbols, start_date, end_date, interval='1d'):
+    def fetch_data(self, symbols, start_date, end_date, interval='1d', long_only=True):
         """
         Fetch and prepare stock data for analysis.
         
@@ -499,6 +556,7 @@ class PortfolioApp:
             start_date (datetime): Start date for data
             end_date (datetime): End date for data
             interval (str): Data interval
+            long_only (bool): Whether to use long-only constraints
             
         Raises:
             ValueError: If no data is available after processing
@@ -506,6 +564,9 @@ class PortfolioApp:
         print("=" * 60)
         print("PORTFOLIO ANALYSIS APPLICATION")
         print("=" * 60)
+        
+        # Set the long-only constraint
+        self.long_only = long_only
         
         # Fetch data for all symbols
         self.portfolio_data = self.api.get_multiple_stocks(symbols, start_date, end_date, interval)
@@ -517,7 +578,7 @@ class PortfolioApp:
         self.returns = self.portfolio_data.pct_change().dropna()
         self.risk_free_rate = self.api.get_risk_free_rate()
         
-        # Initialize analyzer
+        # Initialize analyzer with long_only setting
         self.analyzer = PortfolioAnalyzer(self.returns, self.risk_free_rate, self.long_only)
         
         # Print summary information
@@ -526,7 +587,7 @@ class PortfolioApp:
         print(f"Number of trading days: {len(self.returns)}")
         print(f"Assets: {list(self.returns.columns)}")
         print(f"Risk-free rate: {self.risk_free_rate:.2%}")
-        print(f"Long-only Portfolio: {self.long_only}")
+        print(f"Portfolio Type: {'Long-only' if self.long_only else 'Long-short'}")
     
     def get_portfolio(self, portfolio_name):
         """
@@ -777,49 +838,40 @@ class PortfolioApp:
         self.store_portfolio("Monte Carlo Optimal", optimal_weights, "Optimal portfolio from Monte Carlo simulation")
         
         # Generate plots and save as images
-        image_paths = {}
-        if save_images:
-            import os
-            os.makedirs('static/images', exist_ok=True)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            # Efficient Frontier
-            optimal_metrics = self.analyzer.calculate_portfolio_metrics(optimal_weights)
-            eff_frontier_path = f'static/images/efficient_frontier_{timestamp}.png'
-            PortfolioVisualizer.plot_efficient_frontier(
-                mc_results[0], mc_results[1], mc_results[2], optimal_metrics, eff_frontier_path
-            )
-            image_paths['efficient_frontier'] = eff_frontier_path
-            
-            # Portfolio weights
-            weights_min_var_path = f'static/images/weights_min_var_{timestamp}.png'
-            PortfolioVisualizer.plot_weights(
-                min_var_weights, self.returns.columns, "Minimum Variance Portfolio Weights", weights_min_var_path
-            )
-            image_paths['weights_min_var'] = weights_min_var_path
-            
-            weights_tangency_path = f'static/images/weights_tangency_{timestamp}.png'
-            PortfolioVisualizer.plot_weights(
-                tangency_weights, self.returns.columns, "Tangency Portfolio Weights", weights_tangency_path
-            )
-            image_paths['weights_tangency'] = weights_tangency_path
-            
-            # Correlation matrix
-            corr_matrix_path = f'static/images/correlation_matrix_{timestamp}.png'
-            PortfolioVisualizer.plot_correlation_matrix(self.returns.corr(), corr_matrix_path)
-            image_paths['correlation_matrix'] = corr_matrix_path
-            
-            # Cumulative returns
-            returns_path = f'static/images/cumulative_returns_{timestamp}.png'
-            PortfolioVisualizer.plot_returns_time_series(self.returns, returns_path)
-            image_paths['cumulative_returns'] = returns_path
+        image_data = {}
+
+        # Efficient Frontier
+        optimal_metrics = self.analyzer.calculate_portfolio_metrics(optimal_weights)
+        image_data['efficient_frontier'] = PortfolioVisualizer.plot_efficient_frontier(
+            mc_results[0], mc_results[1], mc_results[2], optimal_metrics
+        )
+    
+        # Portfolio weights
+        image_data['weights_min_var'] = PortfolioVisualizer.plot_weights(
+            min_var_weights, self.returns.columns, "Minimum Variance Portfolio Weights", self.long_only
+        )
+        
+        
+        image_data['weights_tangency'] = PortfolioVisualizer.plot_weights(
+            tangency_weights, self.returns.columns, "Tangency Portfolio Weights", self.long_only
+        )
+        
+        # Correlation matrix
+        image_data['correlation_matrix'] = PortfolioVisualizer.plot_correlation_matrix(
+            self.returns.corr()
+        )
+        
+        # Cumulative returns
+        image_data['cumulative_returns'] = PortfolioVisualizer.plot_returns_time_series(
+            self.returns
+        )
         
         # Store analysis results
         self.analysis_results = {
             'mc_results': mc_results,
             'mc_weights': mc_weights,
             'market_returns_available': self.market_data is not None,
-            'image_paths': image_paths
+            'image_data': image_data  # Now contains base64 strings instead of file paths
         }
         
         return self.analysis_results
@@ -835,19 +887,289 @@ class Portfolios(db.Model):
         stocks (str): Comma-separated stock symbols
         description (str): Portfolio description
         weights (str): Portfolio weights as JSON string
+        long_only (bool): Whether portfolio is long-only or long-short
         date_created (datetime): Creation timestamp
     """
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    stocks = db.Column(db.String(500), nullable=False)  # Increased length
+    stocks = db.Column(db.String(500), nullable=False)
     description = db.Column(db.String(200))
-    weights = db.Column(db.String(500))  # Store weights as JSON string
+    weights = db.Column(db.String(500))
+    long_only = db.Column(db.Boolean, default=True, nullable=False)  # Add this field
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
-        """String representation of Portfolio object."""
         return f'<Portfolio {self.name}>'
+
+class StockAnalysis:
+    """
+    A comprehensive class for analyzing individual stocks using yFinance data.
+    Provides valuation, profitability, risk, and technical analysis.
+    """
+    
+    def __init__(self, ticker_symbol):
+        """
+        Initialize with a ticker symbol.
+        
+        Args:
+            ticker_symbol (str): Stock ticker symbol
+        """
+        self.ticker = yf.Ticker(ticker_symbol)
+        self.symbol = ticker_symbol
+        self.info = self.ticker.info
+        self.historical_data = None
+        self.analysis_results = {}
+    
+    def fetch_data(self, period="3y"):
+        """
+        Fetch historical data for analysis.
+        
+        Args:
+            period (str): Time period for historical data
+        """
+        self.historical_data = self.ticker.history(period=period)
+        return self.historical_data
+    
+    def calculate_performance_metrics(self):
+        """Calculate performance and risk metrics."""
+        if self.historical_data is None:
+            self.fetch_data()
+        
+        closes = self.historical_data['Close']
+        daily_returns = closes.pct_change().dropna()
+        
+        metrics = {
+            'annualized_return': daily_returns.mean() * 252,
+            'annualized_volatility': daily_returns.std() * np.sqrt(252),
+            'sharpe_ratio': (daily_returns.mean() * 252) / (daily_returns.std() * np.sqrt(252)) if daily_returns.std() > 0 else 0,
+            'max_drawdown': (closes / closes.cummax() - 1).min(),
+            'var_95': np.percentile(daily_returns, 5),
+            'cvar_95': daily_returns[daily_returns <= np.percentile(daily_returns, 5)].mean()
+        }
+        
+        # Calculate beta if we have market data (using SPY as proxy)
+        try:
+            market_data = yf.Ticker("SPY").history(period="3y")['Close']
+            market_returns = market_data.pct_change().dropna()
+            aligned_returns = daily_returns.reindex(market_returns.index).dropna()
+            aligned_market = market_returns.reindex(aligned_returns.index)
+            
+            covariance = np.cov(aligned_returns, aligned_market)[0, 1]
+            market_variance = np.var(aligned_market)
+            metrics['beta'] = covariance / market_variance if market_variance > 0 else np.nan
+        except:
+            metrics['beta'] = np.nan
+        
+        return metrics
+    
+    def calculate_technical_indicators(self):
+        """Calculate various technical indicators."""
+        if self.historical_data is None:
+            self.fetch_data()
+        
+        closes = self.historical_data['Close']
+        highs = self.historical_data['High']
+        lows = self.historical_data['Low']
+        
+        # Moving averages
+        indicators = {
+            'sma_50': closes.rolling(window=50).mean().iloc[-1],
+            'sma_200': closes.rolling(window=200).mean().iloc[-1],
+            'ema_20': closes.ewm(span=20).mean().iloc[-1]
+        }
+        
+        # RSI
+        delta = closes.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        indicators['rsi'] = 100 - (100 / (1 + rs)).iloc[-1]
+        
+        # MACD
+        ema_12 = closes.ewm(span=12).mean()
+        ema_26 = closes.ewm(span=26).mean()
+        indicators['macd'] = (ema_12 - ema_26).iloc[-1]
+        indicators['macd_signal'] = (ema_12 - ema_26).ewm(span=9).mean().iloc[-1]
+        
+        # Bollinger Bands
+        sma_20 = closes.rolling(window=20).mean()
+        std_20 = closes.rolling(window=20).std()
+        indicators['bollinger_upper'] = (sma_20 + (std_20 * 2)).iloc[-1]
+        indicators['bollinger_lower'] = (sma_20 - (std_20 * 2)).iloc[-1]
+        indicators['bollinger_percent'] = ((closes.iloc[-1] - indicators['bollinger_lower']) / 
+                                         (indicators['bollinger_upper'] - indicators['bollinger_lower'])) * 100
+        
+        return indicators
+    
+    def calculate_valuation_ratios(self):
+        """Calculate valuation ratios."""
+        ratios = {
+            'pe_ratio': self.info.get('trailingPE'),
+            'forward_pe': self.info.get('forwardPE'),
+            'peg_ratio': self.info.get('pegRatio'),
+            'price_to_sales': self.info.get('priceToSalesTrailing12Months'),
+            'price_to_book': self.info.get('priceToBook'),
+            'ev_to_ebitda': self.info.get('enterpriseToEbitda'),
+            'ev_to_revenue': self.info.get('enterpriseToRevenue'),
+            'dividend_yield': self.info.get('dividendYield')
+        }
+        return ratios
+    
+    def calculate_profitability_metrics(self):
+        """Calculate profitability metrics."""
+        try:
+            financials = self.ticker.financials
+            income_stmt = self.ticker.income_stmt
+            balance_sheet = self.ticker.balance_sheet
+            
+            # Get the most recent year's data
+            recent_year = financials.columns[0]
+            
+            metrics = {
+                'gross_margin': financials.loc['Gross Profit', recent_year] / financials.loc['Total Revenue', recent_year] if 'Gross Profit' in financials.index and 'Total Revenue' in financials.index else None,
+                'operating_margin': financials.loc['Operating Income', recent_year] / financials.loc['Total Revenue', recent_year] if 'Operating Income' in financials.index and 'Total Revenue' in financials.index else None,
+                'net_margin': financials.loc['Net Income', recent_year] / financials.loc['Total Revenue', recent_year] if 'Net Income' in financials.index and 'Total Revenue' in financials.index else None,
+                'return_on_equity': income_stmt.loc['Net Income', recent_year] / balance_sheet.loc['Total Stockholder Equity', recent_year] if 'Net Income' in income_stmt.index and 'Total Stockholder Equity' in balance_sheet.index else None,
+                'return_on_assets': income_stmt.loc['Net Income', recent_year] / balance_sheet.loc['Total Assets', recent_year] if 'Net Income' in income_stmt.index and 'Total Assets' in balance_sheet.index else None
+            }
+        except Exception as e:
+            print(f"Error calculating profitability metrics: {e}")
+            metrics = {
+                'gross_margin': None,
+                'operating_margin': None,
+                'net_margin': None,
+                'return_on_equity': None,
+                'return_on_assets': None
+            }
+        
+        return metrics
+    
+    def dividend_analysis(self):
+        """Analyze dividend information."""
+        dividends = self.ticker.dividends
+        
+        analysis = {
+            'dividend_yield': self.info.get('dividendYield')/100,
+            'dividend_growth_5y': self.info.get('dividendGrowth5y'),
+            'payout_ratio': self.info.get('payoutRatio'),
+            'has_dividends': not dividends.empty,
+            'last_dividend': dividends.iloc[-1] if not dividends.empty else 0,
+            'dividend_frequency': self._estimate_dividend_frequency(dividends)
+        }
+        
+        return analysis
+    
+    def _estimate_dividend_frequency(self, dividends):
+        """Estimate dividend payment frequency."""
+        if dividends.empty or len(dividends) < 2:
+            return "Unknown"
+        
+        # Calculate average days between payments
+        dates = dividends.index.sort_values()
+        if len(dates) > 1:
+            avg_days = (dates[-1] - dates[0]).days / (len(dates) - 1)
+            if avg_days < 40:
+                return "Quarterly"
+            elif avg_days < 100:
+                return "Semi-Annual"
+            else:
+                return "Annual"
+        return "Unknown"
+    
+    def dcf_valuation(self, discount_rate=0.08, perpetual_growth=0.02):
+        """Simplified DCF valuation."""
+        try:
+            cash_flow = self.ticker.cash_flow
+            balance_sheet = self.ticker.balance_sheet
+            
+            if cash_flow.empty or balance_sheet.empty:
+                return None
+            
+            # Get most recent free cash flow
+            if 'Free Cash Flow' in cash_flow.index:
+                fcf = cash_flow.loc['Free Cash Flow'].iloc[0]
+            else:
+                # Estimate FCF if not directly available
+                operating_cash_flow = cash_flow.loc['Operating Cash Flow'].iloc[0] if 'Operating Cash Flow' in cash_flow.index else 0
+                cap_ex = cash_flow.loc['Capital Expenditure'].iloc[0] if 'Capital Expenditure' in cash_flow.index else 0
+                fcf = operating_cash_flow + cap_ex  # CapEx is typically negative
+            
+            # Forecast future cash flows
+            forecast_years = 5
+            future_cash_flows = []
+            
+            for year in range(1, forecast_years + 1):
+                future_fcf = fcf * (1 + perpetual_growth) ** year
+                future_cash_flows.append(future_fcf / (1 + discount_rate) ** year)
+            
+            # Terminal value
+            terminal_value = (future_cash_flows[-1] * (1 + perpetual_growth)) / (discount_rate - perpetual_growth)
+            terminal_value_discounted = terminal_value / (1 + discount_rate) ** forecast_years
+            
+            # Total enterprise value
+            enterprise_value = sum(future_cash_flows) + terminal_value_discounted
+            
+            # Adjust for cash and debt
+            cash = balance_sheet.loc['Cash'].iloc[0] if 'Cash' in balance_sheet.index else 0
+            debt = balance_sheet.loc['Total Debt'].iloc[0] if 'Total Debt' in balance_sheet.index else 0
+            
+            equity_value = enterprise_value - debt + cash
+            shares_outstanding = self.info.get('sharesOutstanding')
+            
+            if shares_outstanding:
+                fair_value = equity_value / shares_outstanding
+                return fair_value
+        except Exception as e:
+            print(f"Error in DCF valuation: {e}")
+        
+        return None
+    
+    def relative_valuation(self, comparable_tickers):
+        """Compare valuation with peer companies."""
+        base_metrics = self.calculate_valuation_ratios()
+        peer_metrics = {}
+        
+        for peer in comparable_tickers:
+            try:
+                peer_analysis = StockAnalysis(peer)
+                peer_metrics[peer] = peer_analysis.calculate_valuation_ratios()
+            except:
+                peer_metrics[peer] = "Error fetching data"
+        
+        return {
+            'base_company': base_metrics,
+            'peers': peer_metrics
+        }
+    
+    def comprehensive_analysis(self):
+        """Perform comprehensive analysis of the stock."""
+        self.fetch_data()
+        
+        self.analysis_results = {
+            'basic_info': {
+                'name': self.info.get('longName', self.symbol),
+                'sector': self.info.get('sector'),
+                'industry': self.info.get('industry'),
+                'market_cap': self.info.get('marketCap'),
+                'current_price': self.info.get('regularMarketPrice'),
+                '52_week_high': self.info.get('fiftyTwoWeekHigh'),
+                '52_week_low': self.info.get('fiftyTwoWeekLow')
+            },
+            'performance_metrics': self.calculate_performance_metrics(),
+            'technical_indicators': self.calculate_technical_indicators(),
+            'valuation_ratios': self.calculate_valuation_ratios(),
+            'profitability_metrics': self.calculate_profitability_metrics(),
+            'dividend_analysis': self.dividend_analysis(),
+            'dcf_valuation': self.dcf_valuation(),
+            'analyst_data': {
+                'recommendation': self.info.get('recommendationKey'),
+                'target_price': self.info.get('targetMeanPrice'),
+                'number_of_analysts': self.info.get('numberOfAnalystOpinions')
+            }
+        }
+        
+        return self.analysis_results
 
 
 # Initialize the portfolio application
@@ -870,6 +1192,7 @@ def index():
         # Process form submission
         portfolio_name = request.form.get('name', 'Unnamed Portfolio')
         stocks_chosen = request.form['stocks']
+        long_only = request.form.get('long_only', 'true').lower() == 'true'  # Get the long_only option
         
         # Validate stocks input
         symbols = [stock.strip().upper() for stock in stocks_chosen.split(",") if stock.strip()]
@@ -880,7 +1203,8 @@ def index():
         new_portfolio = Portfolios(
             name=portfolio_name,
             stocks=stocks_chosen,
-            description=request.form.get('description', '')
+            description=request.form.get('description', ''),
+            long_only=long_only  # Store the long_only setting
         )
 
         try: 
@@ -918,15 +1242,6 @@ def delete(id):
 
 @app.route('/access/<int:id>', methods=['GET', 'POST'])
 def access(id):
-    """
-    Access and analyze a specific portfolio.
-    
-    Args:
-        id (int): Portfolio ID
-        
-    Returns:
-        Rendered template or error message
-    """
     global Portfolio_app
     portfolio = Portfolios.query.get_or_404(id)
     
@@ -941,23 +1256,22 @@ def access(id):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=3*365)
 
-        
-        # Fetch and analyze data
-        Portfolio_app.fetch_data(symbols, start_date, end_date, interval='1d')
+        # Fetch and analyze data with the portfolio's long_only setting
+        Portfolio_app.fetch_data(symbols, start_date, end_date, interval='1d', long_only=portfolio.long_only)
 
         # Check if all symbols were found
         if len(Portfolio_app.returns.columns) != len(symbols):
             return 'One or more stock symbols can not be found.'
 
         # Run portfolio analysis
-        analysis_results = Portfolio_app.run_analysis(market_symbol='SPY', save_images=True)
+        analysis_results = Portfolio_app.run_analysis(market_symbol='SPY')
         
+        # Rest of the function remains the same...
         # Get portfolio performance data
         portfolio_names = Portfolio_app.get_portfolio_names()
         market_data = Portfolio_app.market_data
         comparison = Portfolio_app.compare_portfolios(portfolio_names, market_data)
 
-        
         # Get individual asset performance
         asset_performance = {}
         for symbol in symbols:
@@ -989,7 +1303,8 @@ def access(id):
             'risk_free_rate': Portfolio_app.risk_free_rate,
             'start_date': Portfolio_app.returns.index[0].date() if Portfolio_app.returns is not None else None,
             'end_date': Portfolio_app.returns.index[-1].date() if Portfolio_app.returns is not None else None,
-            'trading_days': len(Portfolio_app.returns) if Portfolio_app.returns is not None else 0
+            'trading_days': len(Portfolio_app.returns) if Portfolio_app.returns is not None else 0,
+            'portfolio_type': 'Long-only' if portfolio.long_only else 'Long-short'
         }
         
         # Render analysis results
@@ -999,7 +1314,7 @@ def access(id):
                              comparison=comparison,
                              portfolio_names=portfolio_names,
                              asset_performance=asset_performance,
-                             image_paths=analysis_results['image_paths'],
+                             image_data=analysis_results['image_data'],
                              market_available=analysis_results['market_returns_available'],
                              analysis_details=analysis_details,
                              portfolio_weights=portfolio_weights)
@@ -1010,19 +1325,11 @@ def access(id):
 
 @app.route('/update/<int:id>', methods = ['GET','POST'])
 def update(id):
-    """
-    Update a portfolio's stock symbols.
-    
-    Args:
-        id (int): Portfolio ID
-        
-    Returns:
-        Rendered template or redirect
-    """
     portfolio = Portfolios.query.get_or_404(id)
     if request.method == 'POST':
-        # Update portfolio stocks
+        # Update portfolio stocks and long_only setting
         portfolio.stocks = request.form['stocks']
+        portfolio.long_only = request.form.get('long_only', 'true').lower() == 'true'
 
         try:
             # Save changes to database
@@ -1035,6 +1342,32 @@ def update(id):
     else:
         # Display update form
         return render_template('update.html', portfolio=portfolio)
+
+
+@app.route('/analyze_stock', methods=['POST'])
+def analyze_stock():
+    """
+    Analyze an individual stock and display results.
+    """
+    ticker_symbol = request.form['ticker_symbol'].strip().upper()
+    
+    if not ticker_symbol:
+        return redirect('/')
+    
+    try:
+        # Perform comprehensive analysis
+        analyzer = StockAnalysis(ticker_symbol)
+        analysis_results = analyzer.comprehensive_analysis()
+        
+        return render_template('stock_analysis.html', 
+                             analysis=analysis_results, 
+                             symbol=ticker_symbol)
+                             
+    except Exception as e:
+        print(f"Error analyzing stock {ticker_symbol}: {str(e)}")
+        return render_template('stock_analysis.html', 
+                             error=str(e), 
+                             symbol=ticker_symbol)
 
 if __name__ == "__main__":
     # Run the Flask application
