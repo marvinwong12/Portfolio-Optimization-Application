@@ -3,6 +3,10 @@ import matplotlib
 matplotlib.use('Agg')
 
 # Import required libraries
+import os
+import json
+import time
+import threading
 from flask import Flask, render_template, url_for, request, redirect
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
@@ -23,6 +27,38 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///portfolios.db'
 db = SQLAlchemy(app)
 
 
+class _TTLCache:
+    """Small in-memory cache with per-entry expiry, thread-safe for Flask's
+    threaded request handling. Used to avoid re-hitting the Yahoo Finance API
+    for the same symbols/date-range on every page view."""
+
+    def __init__(self, ttl_seconds):
+        self.ttl_seconds = ttl_seconds
+        self._store = {}
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            value, expires_at = entry
+            if time.time() > expires_at:
+                del self._store[key]
+                return None
+            return value
+
+    def set(self, key, value):
+        with self._lock:
+            self._store[key] = (value, time.time() + self.ttl_seconds)
+
+
+# Historical price data rarely needs refreshing more than a few times an hour.
+_price_cache = _TTLCache(ttl_seconds=900)
+# The T-bill risk-free rate changes at most once a day.
+_risk_free_rate_cache = _TTLCache(ttl_seconds=3600)
+
+
 class StockDataFetcher:
     """
     A class to fetch and process stock data from Yahoo Finance API.
@@ -30,7 +66,6 @@ class StockDataFetcher:
     Methods:
         get_historical_data: Fetch historical price data for a single symbol
         get_multiple_stocks: Fetch historical price data for multiple symbols
-        deannualize: Convert annual rate to periodic rate
         get_risk_free_rate: Fetch current risk-free rate from 3-month T-bills
     """
     
@@ -54,20 +89,30 @@ class StockDataFetcher:
         Raises:
             ValueError: If no data is found for the symbol
         """
+        # Cache key rounded to the day: with a '1d' interval the data for a
+        # given day doesn't change once the market has closed, so repeated
+        # page views within the TTL window can reuse the same fetch.
+        cache_key = ('single', symbol, start_date.date(), end_date.date(), interval)
+        cached = _price_cache.get(cache_key)
+        if cached is not None:
+            return cached.copy()
+
         try:
             # Convert dates to string format for yfinance
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = end_date.strftime('%Y-%m-%d')
-            
+
             # Fetch data from Yahoo Finance
             stock = yf.Ticker(symbol)
             df = stock.history(start=start_str, end=end_str, interval=interval)
-            
+
             # Check if data is empty
             if df.empty:
                 raise ValueError(f"No data found for {symbol}")
-                
-            return df['Close']
+
+            closes = df['Close']
+            _price_cache.set(cache_key, closes)
+            return closes.copy()
         except Exception as e:
             raise ValueError(f"Failed to fetch data for {symbol}: {str(e)}")
     
@@ -87,51 +132,71 @@ class StockDataFetcher:
         Raises:
             ValueError: If no data is successfully fetched for any symbol
         """
+        # Cache key rounded to the day, same rationale as get_historical_data:
+        # avoids re-fetching the same batch of symbols on every page view.
+        cache_key = ('multiple', tuple(sorted(symbols)), start_date.date(), end_date.date(), interval)
+        cached = _price_cache.get(cache_key)
+        if cached is not None:
+            print(f"Using cached data for {len(symbols)} symbols: {symbols}")
+            return cached.copy()
+
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+
+        # Fetch all symbols in a single batched request instead of one
+        # request per symbol - much faster and avoids hammering the API.
+        print(f"Fetching data for {len(symbols)} symbols: {symbols}")
+        raw = yf.download(symbols, start=start_str, end=end_str, interval=interval,
+                           group_by='ticker', auto_adjust=True, progress=False)
+
         data = {}
         successful_symbols = []
-        
-        # Fetch data for each symbol
-        for symbol in symbols:
-            try:
-                print(f"Fetching data for {symbol}...")
-                data[symbol] = self.get_historical_data(symbol, start_date, end_date, interval)
-                successful_symbols.append(symbol)
-                print(f"✓ Successfully fetched data for {symbol}")
-            except Exception as e:
-                print(f"✗ Failed to fetch data for {symbol}: {str(e)}")
-                continue
-        
+
+        if not raw.empty:
+            for symbol in symbols:
+                try:
+                    if isinstance(raw.columns, pd.MultiIndex):
+                        closes = raw[symbol]['Close']
+                    else:
+                        # Only one symbol was requested, so columns aren't
+                        # nested per-ticker.
+                        closes = raw['Close']
+
+                    closes = closes.dropna()
+                    if closes.empty:
+                        raise ValueError(f"No data found for {symbol}")
+
+                    data[symbol] = closes
+                    successful_symbols.append(symbol)
+                    print(f"✓ Successfully fetched data for {symbol}")
+                except (KeyError, ValueError) as e:
+                    print(f"✗ Failed to fetch data for {symbol}: {str(e)}")
+                    continue
+
         # Check if any data was fetched
         if not data:
             raise ValueError("No data was successfully fetched for any symbol")
-        
+
         # Create DataFrame and align dates
         df = pd.DataFrame(data)
         df = df.dropna()  # Remove rows with missing values
-        
-        print(f"\nSuccessfully retrieved data for {len(successful_symbols)} symbols: {successful_symbols}")
-        return df
-    
-    def deannualize(self, annual_rate, periods=365):
-        """
-        Convert an annual rate to a periodic rate.
-        
-        Args:
-            annual_rate (float): Annual interest rate in percentage
-            periods (int): Number of periods in a year
-            
-        Returns:
-            float: Periodic interest rate
-        """
-        return (1 + annual_rate/100) ** (1/periods) - 1
 
+        print(f"\nSuccessfully retrieved data for {len(successful_symbols)} symbols: {successful_symbols}")
+        _price_cache.set(cache_key, df)
+        return df.copy()
+    
     def get_risk_free_rate(self):
         """
-        Get the most recent daily risk-free rate from 3-month T-bills.
-        
+        Get the most recent annualized risk-free rate from 3-month T-bills.
+
         Returns:
-            float: Daily risk-free rate or None if unavailable
+            float: Annual risk-free rate as a decimal, or None if unavailable
         """
+        cache_key = ('risk_free_rate', datetime.now().date())
+        cached = _risk_free_rate_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             # Download 3-month US Treasury bill rates
             annualized = yf.download("^IRX", period="1mo", auto_adjust=True)['Close']
@@ -139,14 +204,18 @@ class StockDataFetcher:
             if annualized.empty:
                 raise ValueError("No data returned from Yahoo Finance")
 
-            # Convert to daily rate
-            daily_rate = self.deannualize(annualized.iloc[-1].iloc[-1])
-            
+            # ^IRX is quoted as an annualized percentage (e.g. 5.25 for 5.25%).
+            # Every consumer of this value (Sharpe/Treynor/Jensen's alpha,
+            # tangency weights) compares it against annualized returns, so it
+            # must stay annual rather than being deannualized to a daily rate.
+            annual_rate = annualized.iloc[-1].iloc[-1] / 100
+            _risk_free_rate_cache.set(cache_key, annual_rate)
+
         except Exception as e:
             print(f"Error fetching risk-free rate: {e}")
             return None
-        
-        return daily_rate
+
+        return annual_rate
 
 
 class PortfolioAnalyzer:
@@ -275,32 +344,27 @@ class PortfolioAnalyzer:
         """
         n = len(self.mean_returns)
         
-        if self.long_only:
-            # Long-only constraint (existing code)
-            ones = np.ones(n)
-            try:
-                inv_cov = np.linalg.inv(self.cov_matrix)
-                denominator = np.dot(ones.T, np.dot(inv_cov, ones))
-                weights = np.dot(inv_cov, ones) / denominator
-                
+        ones = np.ones(n)
+        try:
+            # Solve cov_matrix @ x = ones directly instead of computing the
+            # full inverse - faster and more numerically stable.
+            raw_weights = np.linalg.solve(self.cov_matrix, ones)
+
+            if self.long_only:
+                weights = raw_weights / np.dot(ones, raw_weights)
+
                 # Ensure no negative weights (long-only constraint)
                 weights = np.maximum(weights, 0)
                 weights /= weights.sum()
-                
+
                 return weights
-            except np.linalg.LinAlgError:
-                # Fallback to equal weights if matrix is singular
-                return np.ones(n) / n
-        else:
-            # Long-short portfolio (no constraints)
-            try:
-                inv_cov = np.linalg.inv(self.cov_matrix)
-                ones = np.ones(n)
-                weights = np.dot(inv_cov, ones) / np.dot(ones.T, np.dot(inv_cov, ones))
+            else:
+                # Long-short portfolio (no constraints)
+                weights = raw_weights / np.dot(ones, raw_weights)
                 return weights
-            except np.linalg.LinAlgError:
-                # Fallback to equal weights
-                return np.ones(n) / n
+        except np.linalg.LinAlgError:
+            # Fallback to equal weights if matrix is singular
+            return np.ones(n) / n
     
     def tangency_portfolio(self):
         """
@@ -312,32 +376,27 @@ class PortfolioAnalyzer:
         n = len(self.mean_returns)
         excess_returns = self.mean_returns - self.risk_free_rate
         
-        if self.long_only:
-            # Long-only constraint (existing code)
-            try:
-                inv_cov = np.linalg.inv(self.cov_matrix)
-                weights = np.dot(inv_cov, excess_returns)
-                weights /= weights.sum()
-                
-                # Ensure no negative weights (long-only constraint)
+        try:
+            # Solve cov_matrix @ x = excess_returns directly instead of
+            # computing the full inverse - faster and more numerically stable.
+            weights = np.linalg.solve(self.cov_matrix, excess_returns)
+
+            if self.long_only:
+                # Clip negative weights before normalizing, since normalizing
+                # by a possibly-negative raw sum first can flip every sign
+                # and select the wrong assets.
                 weights = np.maximum(weights, 0)
                 weights /= weights.sum()
-                
+
                 return weights
-            except np.linalg.LinAlgError:
-                # Fallback to equal weights
-                return np.ones(n) / n
-        else:
-            # Long-short portfolio (no constraints)
-            try:
-                inv_cov = np.linalg.inv(self.cov_matrix)
-                weights = np.dot(inv_cov, excess_returns)
+            else:
+                # Long-short portfolio (no constraints)
                 # Normalize weights but allow negative values
                 weights /= np.sum(np.abs(weights))  # Use absolute sum for normalization
                 return weights
-            except np.linalg.LinAlgError:
-                # Fallback to equal weights
-                return np.ones(n) / n
+        except np.linalg.LinAlgError:
+            # Fallback to equal weights
+            return np.ones(n) / n
     
     def monte_carlo_simulation(self, num_portfolios=10000):
         """
@@ -349,32 +408,38 @@ class PortfolioAnalyzer:
         Returns:
             tuple: Results array and weights record
         """
-        results = np.zeros((3, num_portfolios))
-        weights_record = []
         n = len(self.mean_returns)
-        
-        # Generate random portfolios
-        for i in range(num_portfolios):
-            if self.long_only:
-                # Long-only: weights between 0 and 1
-                weights = np.random.random(n)
-                weights /= np.sum(weights)
-            else:
-                # Long-short: weights between -1 and 1
-                weights = np.random.uniform(-1, 1, n)
-                weights /= np.sum(np.abs(weights))  # Normalize by absolute sum
-            
-            weights_record.append(weights)
-            
-            # Calculate portfolio metrics
-            portfolio_return = np.sum(self.mean_returns * weights)
-            portfolio_std = np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix, weights)))
-            
-            # Store results
-            results[0, i] = portfolio_return
-            results[1, i] = portfolio_std
-            results[2, i] = (portfolio_return - self.risk_free_rate) / portfolio_std if portfolio_std != 0 else 0
-        
+
+        # Generate all random portfolios at once and normalize row-wise,
+        # instead of looping in Python - this is the hot path for large
+        # num_portfolios and vectorizing it is an order of magnitude faster.
+        if self.long_only:
+            # Long-only: weights between 0 and 1
+            weights_matrix = np.random.random((num_portfolios, n))
+            weights_matrix /= weights_matrix.sum(axis=1, keepdims=True)
+        else:
+            # Long-short: weights between -1 and 1
+            weights_matrix = np.random.uniform(-1, 1, (num_portfolios, n))
+            weights_matrix /= np.abs(weights_matrix).sum(axis=1, keepdims=True)
+
+        # Portfolio return per simulation: (num_portfolios, n) @ (n,) -> (num_portfolios,)
+        portfolio_returns = weights_matrix @ self.mean_returns.values
+
+        # Portfolio volatility per simulation via batched quadratic form
+        portfolio_stds = np.sqrt(
+            np.einsum('ij,jk,ik->i', weights_matrix, self.cov_matrix, weights_matrix)
+        )
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            sharpe_ratios = np.where(
+                portfolio_stds != 0,
+                (portfolio_returns - self.risk_free_rate) / portfolio_stds,
+                0
+            )
+
+        results = np.vstack([portfolio_returns, portfolio_stds, sharpe_ratios])
+        weights_record = list(weights_matrix)
+
         return results, weights_record
 
 
@@ -886,7 +951,9 @@ class Portfolios(db.Model):
         name (str): Portfolio name
         stocks (str): Comma-separated stock symbols
         description (str): Portfolio description
-        weights (str): Portfolio weights as JSON string
+        weights (str): Tangency (max Sharpe) portfolio weights as a JSON
+            string, keyed by symbol - populated after each analysis run
+            via the /access/<id> route
         long_only (bool): Whether portfolio is long-only or long-short
         date_created (datetime): Creation timestamp
     """
@@ -950,7 +1017,11 @@ class StockAnalysis:
         
         # Calculate beta if we have market data (using SPY as proxy)
         try:
-            market_data = yf.Ticker("SPY").history(period="3y")['Close']
+            cache_key = ('spy_3y', datetime.now().date())
+            market_data = _price_cache.get(cache_key)
+            if market_data is None:
+                market_data = yf.Ticker("SPY").history(period="3y")['Close']
+                _price_cache.set(cache_key, market_data)
             market_returns = market_data.pct_change().dropna()
             aligned_returns = daily_returns.reindex(market_returns.index).dropna()
             aligned_market = market_returns.reindex(aligned_returns.index)
@@ -958,7 +1029,8 @@ class StockAnalysis:
             covariance = np.cov(aligned_returns, aligned_market)[0, 1]
             market_variance = np.var(aligned_market)
             metrics['beta'] = covariance / market_variance if market_variance > 0 else np.nan
-        except:
+        except Exception as e:
+            print(f"Error calculating beta: {e}")
             metrics['beta'] = np.nan
         
         return metrics
@@ -1049,8 +1121,9 @@ class StockAnalysis:
         """Analyze dividend information."""
         dividends = self.ticker.dividends
         
+        dividend_yield = self.info.get('dividendYield')
         analysis = {
-            'dividend_yield': self.info.get('dividendYield')/100,
+            'dividend_yield': dividend_yield / 100 if dividend_yield is not None else None,
             'dividend_growth_5y': self.info.get('dividendGrowth5y'),
             'payout_ratio': self.info.get('payoutRatio'),
             'has_dividends': not dividends.empty,
@@ -1134,7 +1207,8 @@ class StockAnalysis:
             try:
                 peer_analysis = StockAnalysis(peer)
                 peer_metrics[peer] = peer_analysis.calculate_valuation_ratios()
-            except:
+            except Exception as e:
+                print(f"Error fetching data for peer {peer}: {e}")
                 peer_metrics[peer] = "Error fetching data"
         
         return {
@@ -1171,9 +1245,6 @@ class StockAnalysis:
         
         return self.analysis_results
 
-
-# Initialize the portfolio application
-Portfolio_app = PortfolioApp()
 
 # Create database tables
 with app.app_context():
@@ -1237,73 +1308,91 @@ def delete(id):
         db.session.delete(portfolio_to_delete)
         db.session.commit()
         return redirect('/')
-    except:
+    except Exception as e:
+        print(f"Error deleting portfolio {id}: {e}")
         return 'There was a problem deleting that portfolio'
 
 @app.route('/access/<int:id>', methods=['GET', 'POST'])
 def access(id):
-    global Portfolio_app
     portfolio = Portfolios.query.get_or_404(id)
-    
+
     try:
         # Parse stock symbols
         symbols = [stock.strip().upper() for stock in portfolio.stocks.split(",") if stock.strip()]
-        
+
         if not symbols:
             return 'Portfolio contains no valid stock symbols'
-        
+
         # Set date range (3 years of historical data)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=3*365)
 
+        # Use a request-local instance instead of shared global state, so
+        # concurrent requests don't overwrite each other's in-progress analysis.
+        portfolio_app = PortfolioApp()
+
         # Fetch and analyze data with the portfolio's long_only setting
-        Portfolio_app.fetch_data(symbols, start_date, end_date, interval='1d', long_only=portfolio.long_only)
+        portfolio_app.fetch_data(symbols, start_date, end_date, interval='1d', long_only=portfolio.long_only)
 
         # Check if all symbols were found
-        if len(Portfolio_app.returns.columns) != len(symbols):
+        if len(portfolio_app.returns.columns) != len(symbols):
             return 'One or more stock symbols can not be found.'
 
         # Run portfolio analysis
-        analysis_results = Portfolio_app.run_analysis(market_symbol='SPY')
-        
+        analysis_results = portfolio_app.run_analysis(market_symbol='SPY')
+
         # Rest of the function remains the same...
         # Get portfolio performance data
-        portfolio_names = Portfolio_app.get_portfolio_names()
-        market_data = Portfolio_app.market_data
-        comparison = Portfolio_app.compare_portfolios(portfolio_names, market_data)
+        portfolio_names = portfolio_app.get_portfolio_names()
+        market_data = portfolio_app.market_data
+        comparison = portfolio_app.compare_portfolios(portfolio_names, market_data)
 
         # Get individual asset performance
         asset_performance = {}
         for symbol in symbols:
-            if symbol in Portfolio_app.returns.columns:
-                asset_return = Portfolio_app.returns[symbol].mean() * 252
-                asset_volatility = Portfolio_app.returns[symbol].std() * np.sqrt(252)
-                asset_sharpe = (asset_return - Portfolio_app.analyzer.risk_free_rate) / asset_volatility
+            if symbol in portfolio_app.returns.columns:
+                asset_return = portfolio_app.returns[symbol].mean() * 252
+                asset_volatility = portfolio_app.returns[symbol].std() * np.sqrt(252)
+                asset_sharpe = (asset_return - portfolio_app.analyzer.risk_free_rate) / asset_volatility
                 asset_performance[symbol] = {
                     'return': asset_return,
                     'volatility': asset_volatility,
                     'sharpe_ratio': asset_sharpe
                 }
-        
+
         # Get weights for each portfolio strategy
         portfolio_weights = {}
         for portfolio_name in portfolio_names:
-            portfolio_data = Portfolio_app.get_portfolio(portfolio_name)
+            portfolio_data = portfolio_app.get_portfolio(portfolio_name)
             if portfolio_data:
                 weights_dict = {}
-                for i, symbol in enumerate(Portfolio_app.returns.columns):
+                for i, symbol in enumerate(portfolio_app.returns.columns):
                     if i < len(portfolio_data['weights']):
                         weights_dict[symbol] = portfolio_data['weights'][i]
                     else:
                         weights_dict[symbol] = 0.0
                 portfolio_weights[portfolio_name] = weights_dict
-        
+
+        # Persist the tangency (max Sharpe) portfolio's weights so the
+        # `weights` column reflects the latest analysis instead of staying
+        # permanently empty.
+        tangency_weights = portfolio_weights.get('Tangency')
+        if tangency_weights:
+            try:
+                portfolio.weights = json.dumps({
+                    symbol: float(weight) for symbol, weight in tangency_weights.items()
+                })
+                db.session.commit()
+            except Exception as e:
+                print(f"Error saving portfolio weights: {e}")
+                db.session.rollback()
+
         # Get analysis details
         analysis_details = {
-            'risk_free_rate': Portfolio_app.risk_free_rate,
-            'start_date': Portfolio_app.returns.index[0].date() if Portfolio_app.returns is not None else None,
-            'end_date': Portfolio_app.returns.index[-1].date() if Portfolio_app.returns is not None else None,
-            'trading_days': len(Portfolio_app.returns) if Portfolio_app.returns is not None else 0,
+            'risk_free_rate': portfolio_app.risk_free_rate,
+            'start_date': portfolio_app.returns.index[0].date() if portfolio_app.returns is not None else None,
+            'end_date': portfolio_app.returns.index[-1].date() if portfolio_app.returns is not None else None,
+            'trading_days': len(portfolio_app.returns) if portfolio_app.returns is not None else 0,
             'portfolio_type': 'Long-only' if portfolio.long_only else 'Long-short'
         }
         
@@ -1370,5 +1459,8 @@ def analyze_stock():
                              symbol=ticker_symbol)
 
 if __name__ == "__main__":
-    # Run the Flask application
-    app.run(debug=True)
+    # Run the Flask application. Debug mode (which exposes the interactive
+    # Werkzeug debugger, a remote code execution risk) is opt-in via env var
+    # rather than hardcoded on, so it can't accidentally ship to production.
+    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    app.run(debug=debug_mode)
