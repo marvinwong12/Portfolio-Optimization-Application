@@ -67,11 +67,60 @@
             margin-bottom: 1.5rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
+
+        /* Top navigation bar */
+        .top-nav {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 2rem;
+            background-color: var(--bg-card);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.95rem;
+        }
+
+        .top-nav .username {
+            color: var(--text-secondary);
+        }
+
+        /* Flash messages */
+        .flash-messages {
+            max-width: 1200px;
+            margin: 1rem auto 0;
+            padding: 0 2rem;
+        }
+
+        .flash-message {
+            background-color: rgba(244, 67, 54, 0.15);
+            color: #F44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            border-radius: 0.375rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+        }
     </style>
-    
+
     {% block head %}{% endblock %}
 </head>
 <body>
+    {% if current_user.is_authenticated %}
+    <div class="top-nav">
+        <span class="username">Signed in as <strong>{{ current_user.username }}</strong></span>
+        <a href="{{ url_for('auth.logout') }}">Log out</a>
+    </div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for message in messages %}
+            <div class="flash-message">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
     <div class="container">
         {% block body %}{% endblock %}
     </div>

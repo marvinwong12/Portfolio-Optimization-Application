@@ -338,8 +338,12 @@
 <div class="content">
     <h1><span class="icon"></span>Portfolio Analysis: {{ portfolio.name }}</h1>
 
-    <div><a href="/" class="back-link">← Back to All Portfolios</a></div>
-    
+    <div>
+        <a href="/" class="back-link">← Back to All Portfolios</a>
+        &nbsp;|&nbsp;
+        <a href="/backtest/{{ portfolio.id }}" class="back-link">Walk-Forward Backtest →</a>
+    </div>
+
     <!-- Portfolio Details -->
     <div class="portfolio-details">
         <h2><span class="icon"></span>Portfolio Overview</h2>

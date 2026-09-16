@@ -1,0 +1,226 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Backtest - {{ portfolio.name }}</title>
+<style>
+    .content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text-primary);
+    }
+
+    h1 {
+        text-align: center;
+        font-size: 2.5rem;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    h2 {
+        color: var(--text-primary);
+        font-size: 1.8rem;
+        margin-bottom: 1.5rem;
+        font-weight: 500;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid var(--accent);
+    }
+
+    .portfolio-section {
+        margin: 2rem 0;
+        padding: 2rem;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .portfolio-details {
+        background-color: rgba(74, 134, 232, 0.2);
+        color: var(--text-primary);
+        padding: 2rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+        border-left: 4px solid var(--accent);
+    }
+
+    .portfolio-details p {
+        margin: 0.75rem 0;
+        font-size: 1.1rem;
+    }
+
+    .portfolio-details strong {
+        font-weight: 600;
+        margin-right: 0.5rem;
+        color: var(--accent);
+    }
+
+    .portfolio-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .portfolio-table th {
+        background-color: rgba(74, 134, 232, 0.2);
+        color: var(--text-primary);
+        padding: 1rem;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--accent);
+    }
+
+    .portfolio-table td {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .portfolio-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .portfolio-table tr:hover td {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.35rem 0.75rem;
+        border-radius: 1rem;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .badge-positive {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4CAF50;
+    }
+
+    .badge-negative {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #F44336;
+    }
+
+    .badge-neutral {
+        background-color: rgba(149, 165, 166, 0.2);
+        color: #95A5A6;
+    }
+
+    .chart-container {
+        margin: 2rem 0;
+        text-align: center;
+        padding: 1.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 0.5rem;
+    }
+
+    .chart-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .methodology-note {
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+        margin-top: 1rem;
+    }
+
+    @media (max-width: 768px) {
+        .content { padding: 1rem; }
+        .portfolio-section { padding: 1.5rem; margin: 1.5rem 0; }
+        .portfolio-table { font-size: 0.9rem; }
+        .portfolio-table th, .portfolio-table td { padding: 0.75rem; }
+        h1 { font-size: 2rem; }
+        h2 { font-size: 1.5rem; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+
+<div class="content">
+    <h1>Walk-Forward Backtest: {{ portfolio.name }}</h1>
+
+    <div>
+        <a href="/" class="back-link">← Back to All Portfolios</a>
+        &nbsp;|&nbsp;
+        <a href="/access/{{ portfolio.id }}" class="back-link">← Back to Analysis</a>
+    </div>
+
+    <div class="portfolio-details">
+        <p><strong>Stocks:</strong> {{ symbols|join(', ') }}</p>
+        <p><strong>Lookback Window:</strong> {{ lookback_days }} trading days (weights are re-estimated using only the trailing {{ lookback_days }} days of returns)</p>
+        <p><strong>Rebalance Frequency:</strong> Every {{ rebalance_days }} trading days</p>
+        <p><strong>Risk-Free Rate:</strong> {{ "%.2f"|format(risk_free_rate * 100) if risk_free_rate is not none else 'N/A' }}%</p>
+        <p class="methodology-note">
+            Unlike the main analysis page, which shows weights computed once from a single static
+            lookback window, this backtest simulates re-estimating weights every {{ rebalance_days }}
+            trading days using only data available up to that point, then measures how those weights
+            actually performed over the following period. This is what determines whether the
+            optimization would have genuinely outperformed a naive equal-weight benchmark, rather than
+            just describing a point-in-time snapshot.
+        </p>
+    </div>
+
+    <div class="portfolio-section">
+        <h2>Realized (Out-of-Sample) Performance</h2>
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>Total Return</th>
+                        <th>Annualized Return</th>
+                        <th>Annualized Volatility</th>
+                        <th>Sharpe Ratio</th>
+                        <th>Max Drawdown</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, metrics in metrics_by_strategy.items() %}
+                    <tr>
+                        <td><strong>{{ name|replace('_', ' ')|title }}</strong></td>
+                        <td>
+                            <span class="badge {% if metrics.total_return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(metrics.total_return * 100) }}%
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if metrics.annualized_return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(metrics.annualized_return * 100) }}%
+                            </span>
+                        </td>
+                        <td>{{ "%.2f"|format(metrics.annualized_volatility * 100) }}%</td>
+                        <td>
+                            <span class="badge {% if metrics.sharpe_ratio > 1 %}badge-positive{% elif metrics.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
+                                {{ "%.2f"|format(metrics.sharpe_ratio) }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-negative">
+                                {{ "%.2f"|format(metrics.max_drawdown * 100) }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="portfolio-section">
+        <h2>Equity Curves</h2>
+        <div class="chart-container">
+            <img src="data:image/png;base64,{{ chart }}" alt="Backtest equity curve comparison">
+        </div>
+    </div>
+</div>
+
+{% endblock %}
