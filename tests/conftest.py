@@ -20,10 +20,18 @@ def _clear_caches():
 @pytest.fixture
 def app():
     """A Flask app instance backed by an in-memory database, isolated from
-    the real portfolios.db."""
+    the real portfolios.db.
+
+    CSRF protection is disabled here (Flask-WTF's own recommended testing
+    config) so the rest of the suite can POST without scraping a token on
+    every request - these tests are exercising route/ownership/business
+    logic, not the CSRF plumbing itself. CSRF protection is verified for
+    real, with it turned back on, in test_csrf.py.
+    """
     application = create_app({
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
         'TESTING': True,
+        'WTF_CSRF_ENABLED': False,
     })
     yield application
 

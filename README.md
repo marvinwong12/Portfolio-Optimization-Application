@@ -77,19 +77,29 @@ whole point of validating with real out-of-sample testing.
 - **Portfolio optimization**: minimum-variance and tangency (max Sharpe)
   portfolios, solved analytically via Ledoit-Wolf shrinkage covariance
   estimation; long-only or long-short constraints
-- **Efficient frontier visualization** via Monte Carlo simulation (vectorized
-  NumPy, not a Python loop)
+- **Efficient frontier visualization**: a Monte Carlo cloud (vectorized
+  NumPy, not a Python loop) overlaid with the *exact* frontier curve, solved
+  via constrained optimization (`scipy.optimize`, SLSQP) rather than sampled
+  - which also supports an optional per-asset weight cap that the
+  closed-form tangency/min-variance solutions can't express
 - **Walk-forward backtesting** comparing each strategy's realized,
   out-of-sample performance against an equal-weight benchmark
+- **Weight history**: every `/access` run records a snapshot of each
+  strategy's weights, so `/history/<id>` can chart how the "optimal"
+  allocation actually drifted across runs instead of only showing the
+  latest one
 - **Risk-adjusted performance metrics**: Sharpe ratio, Treynor ratio, beta,
   and Jensen's alpha against a market benchmark (SPY)
 - **Individual stock analysis**: valuation ratios, profitability metrics,
   technical indicators (RSI, MACD, Bollinger Bands), dividend analysis, and
   a simplified DCF valuation
 - **Per-user accounts**: each user registers, logs in, and only ever sees
-  and manages their own portfolios
+  and manages their own portfolios - plus a one-click **Try Demo** login
+  (`flask seed-demo-user`) for exploring without registering
 - **Caching**: a TTL cache in front of the Yahoo Finance API so repeated
   page views don't re-fetch and re-render on every request
+- **CSRF protection** on every state-changing request (Flask-WTF), and a
+  hardened `SECRET_KEY` requirement outside debug/testing mode
 
 ## Architecture
 
@@ -112,14 +122,15 @@ portfolio_optimizer/
 ├── portfolio_service.py  # Orchestrates fetch -> analyze -> store
 └── stock_analysis.py     # Single-stock fundamental/technical analysis
 migrations/               # Alembic schema migrations (Flask-Migrate)
-tests/                    # pytest suite (99 tests)
+tests/                    # pytest suite (152 tests)
 ```
 
 ## Tech stack
 
-Flask, Flask-SQLAlchemy, Flask-Login, Flask-Migrate (Alembic), SQLite,
-[yfinance](https://github.com/ranaroussi/yfinance), NumPy, pandas,
-scikit-learn (Ledoit-Wolf covariance shrinkage), matplotlib/seaborn, pytest.
+Flask, Flask-SQLAlchemy, Flask-Login, Flask-Migrate (Alembic), Flask-WTF
+(CSRF protection), SQLite, [yfinance](https://github.com/ranaroussi/yfinance),
+NumPy, pandas, scikit-learn (Ledoit-Wolf covariance shrinkage),
+matplotlib/seaborn, pytest.
 
 ## Getting started
 
@@ -132,14 +143,23 @@ source .venv/bin/activate       # .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 
 export FLASK_APP=app.py
+export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
 flask db upgrade                # create/update the database schema
+flask seed-demo-user            # optional: seeds a one-click "Try Demo" account
 
 python app.py                   # http://127.0.0.1:5000
 ```
 
+`SECRET_KEY` signs session cookies and CSRF tokens, so the app refuses to
+start without one outside of debug/testing mode - generate it once and keep
+it somewhere durable (not just your shell history) for a real deployment.
+Alternatively, set `FLASK_DEBUG=1` for pure local development to skip this
+(uses a fixed, clearly-insecure dev key instead).
+
 Register an account, add a portfolio (a comma-separated list of tickers),
 then use **Access** to run the optimization or **Backtest** to walk it
-forward through history.
+forward through history. Or click **Try Demo** on the login page to skip
+registration and explore two pre-loaded sample portfolios immediately.
 
 ## Running tests
 
@@ -148,8 +168,11 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-99 tests cover the optimization math (including regression tests for a
+152 tests cover the optimization math (including regression tests for a
 handful of real bugs found along the way — a tangency-weight sign flip, a
-risk-free-rate unit mismatch, a `None` dividend yield crash), the backtest
-engine's no-lookahead guarantee, caching, and per-user access control, all
-with `yfinance` mocked so the suite runs fully offline.
+risk-free-rate unit mismatch, a `None` dividend yield crash), the exact
+efficient frontier (bounds, monotonicity, dominated-region exclusion), the
+backtest engine's no-lookahead guarantee, weight-history snapshot
+persistence, caching, per-user access control, and CSRF protection
+(verified end-to-end with it explicitly turned back on), all with
+`yfinance` mocked so the suite runs fully offline.

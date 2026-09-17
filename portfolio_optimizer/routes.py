@@ -2,10 +2,11 @@
 import json
 from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, request, redirect, abort
+import numpy as np
+from flask import Blueprint, render_template, request, redirect, abort, flash
 from flask_login import login_required, current_user
 
-from .models import db, Portfolios
+from .models import db, Portfolios, PortfolioSnapshot
 from .portfolio_service import PortfolioApp
 from .stock_analysis import StockAnalysis
 from .data_fetcher import StockDataFetcher
@@ -23,6 +24,19 @@ def _get_owned_portfolio_or_404(id):
     if portfolio.user_id != current_user.id:
         abort(403)
     return portfolio
+
+
+def _get_user_portfolios():
+    return (Portfolios.query
+            .filter_by(user_id=current_user.id)
+            .order_by(Portfolios.date_created)
+            .all())
+
+
+def _safe_float(value):
+    """Convert a metric (possibly a numpy scalar, possibly None) to a
+    plain Python float for storage, without raising on None."""
+    return None if value is None else float(value)
 
 # Walk-forward backtest parameters: weights are re-estimated from the
 # trailing BACKTEST_LOOKBACK_DAYS of returns every BACKTEST_REBALANCE_DAYS,
@@ -47,13 +61,30 @@ def index():
     if request.method == 'POST':
         # Process form submission
         portfolio_name = request.form.get('name', 'Unnamed Portfolio')
-        stocks_chosen = request.form['stocks']
+        stocks_chosen = request.form.get('stocks', '')
         long_only = request.form.get('long_only', 'true').lower() == 'true'  # Get the long_only option
 
         # Validate stocks input
         symbols = [stock.strip().upper() for stock in stocks_chosen.split(",") if stock.strip()]
         if not symbols:
-            return 'Please enter valid stock symbols separated by commas'
+            flash('Please enter at least one stock symbol.')
+            return render_template('index.html', portfolios=_get_user_portfolios())
+
+        # Check the tickers actually exist before saving the portfolio,
+        # rather than only discovering a typo later when the user clicks
+        # Access and gets a dead end.
+        try:
+            _, invalid_symbols = StockDataFetcher().validate_symbols(symbols)
+        except Exception as e:
+            flash(f"Couldn't verify stock symbols right now ({str(e)}). Please try again.")
+            return render_template('index.html', portfolios=_get_user_portfolios())
+
+        if invalid_symbols:
+            flash(
+                f"Could not find data for: {', '.join(invalid_symbols)}. "
+                f"Double-check the ticker symbols and try again."
+            )
+            return render_template('index.html', portfolios=_get_user_portfolios())
 
         # Create new portfolio, owned by the logged-in user
         new_portfolio = Portfolios(
@@ -70,21 +101,23 @@ def index():
             db.session.commit()
             return redirect('/')
         except Exception as e:
-            return f'There was an issue adding your portfolio: {str(e)}'
+            flash(f'There was an issue adding your portfolio: {str(e)}')
+            return render_template('index.html', portfolios=_get_user_portfolios())
     else:
         # Display only the current user's portfolios
-        portfolios = (Portfolios.query
-                      .filter_by(user_id=current_user.id)
-                      .order_by(Portfolios.date_created)
-                      .all())
-        return render_template('index.html', portfolios=portfolios)
+        return render_template('index.html', portfolios=_get_user_portfolios())
 
 
-@bp.route('/delete/<int:id>')
+@bp.route('/delete/<int:id>', methods=['POST'])
 @login_required
 def delete(id):
     """
     Delete a portfolio by ID. Only the owning user may delete it.
+
+    POST-only (not GET): deleting is a state-changing action, and CSRF
+    protection only covers state-changing HTTP methods - a plain GET link
+    would stay forgeable (e.g. via an <img src="...">) even with
+    CSRFProtect installed.
 
     Args:
         id (int): Portfolio ID
@@ -101,7 +134,8 @@ def delete(id):
         return redirect('/')
     except Exception as e:
         print(f"Error deleting portfolio {id}: {e}")
-        return 'There was a problem deleting that portfolio'
+        flash('There was a problem deleting that portfolio.')
+        return redirect('/')
 
 
 @bp.route('/access/<int:id>', methods=['GET', 'POST'])
@@ -114,7 +148,8 @@ def access(id):
         symbols = [stock.strip().upper() for stock in portfolio.stocks.split(",") if stock.strip()]
 
         if not symbols:
-            return 'Portfolio contains no valid stock symbols'
+            flash('Portfolio contains no valid stock symbols.')
+            return redirect('/')
 
         # Set date range (3 years of historical data)
         end_date = datetime.now()
@@ -129,7 +164,8 @@ def access(id):
 
         # Check if all symbols were found
         if len(portfolio_app.returns.columns) != len(symbols):
-            return 'One or more stock symbols can not be found.'
+            flash('One or more stock symbols in this portfolio could not be found.')
+            return redirect('/')
 
         # Run portfolio analysis
         analysis_results = portfolio_app.run_analysis(market_symbol='SPY')
@@ -168,17 +204,31 @@ def access(id):
 
         # Persist the tangency (max Sharpe) portfolio's weights so the
         # `weights` column reflects the latest analysis instead of staying
-        # permanently empty.
+        # permanently empty, and record a PortfolioSnapshot for every
+        # computed strategy so weight drift over time can be shown on
+        # /history/<id> - not just the single latest run.
         tangency_weights = portfolio_weights.get('Tangency')
-        if tangency_weights:
-            try:
+        try:
+            if tangency_weights:
                 portfolio.weights = json.dumps({
                     symbol: float(weight) for symbol, weight in tangency_weights.items()
                 })
-                db.session.commit()
-            except Exception as e:
-                print(f"Error saving portfolio weights: {e}")
-                db.session.rollback()
+
+            for strategy_name, weights_dict in portfolio_weights.items():
+                metrics = comparison.get(strategy_name, {})
+                db.session.add(PortfolioSnapshot(
+                    portfolio_id=portfolio.id,
+                    strategy=strategy_name,
+                    weights=json.dumps({symbol: float(weight) for symbol, weight in weights_dict.items()}),
+                    portfolio_return=_safe_float(metrics.get('return')),
+                    volatility=_safe_float(metrics.get('volatility')),
+                    sharpe_ratio=_safe_float(metrics.get('sharpe_ratio')),
+                ))
+
+            db.session.commit()
+        except Exception as e:
+            print(f"Error saving portfolio weights/snapshot: {e}")
+            db.session.rollback()
 
         # Get analysis details
         analysis_details = {
@@ -203,7 +253,8 @@ def access(id):
 
     except Exception as e:
         print(f"Error analyzing portfolio: {str(e)}")
-        return f'There was a problem accessing your portfolio: {str(e)}'
+        flash(f'There was a problem accessing your portfolio: {str(e)}')
+        return redirect('/')
 
 
 @bp.route('/backtest/<int:id>')
@@ -220,7 +271,8 @@ def backtest(id):
     try:
         symbols = [stock.strip().upper() for stock in portfolio.stocks.split(",") if stock.strip()]
         if not symbols:
-            return 'Portfolio contains no valid stock symbols'
+            flash('Portfolio contains no valid stock symbols.')
+            return redirect('/')
 
         end_date = datetime.now()
         start_date = end_date - timedelta(days=BACKTEST_HISTORY_YEARS * 365)
@@ -229,17 +281,19 @@ def backtest(id):
         price_data = fetcher.get_multiple_stocks(symbols, start_date, end_date, interval='1d')
 
         if len(price_data.columns) != len(symbols):
-            return 'One or more stock symbols can not be found.'
+            flash('One or more stock symbols in this portfolio could not be found.')
+            return redirect('/')
 
         returns = price_data.pct_change().dropna()
         risk_free_rate = fetcher.get_risk_free_rate()
 
         min_required_days = BACKTEST_LOOKBACK_DAYS + BACKTEST_REBALANCE_DAYS
         if len(returns) <= min_required_days:
-            return (
+            flash(
                 f'Not enough historical data to backtest this portfolio: need more than '
                 f'{min_required_days} trading days of history, found {len(returns)}.'
             )
+            return redirect('/')
 
         results = compare_strategies(
             returns, risk_free_rate,
@@ -264,7 +318,65 @@ def backtest(id):
 
     except Exception as e:
         print(f"Error backtesting portfolio: {str(e)}")
-        return f'There was a problem backtesting your portfolio: {str(e)}'
+        flash(f'There was a problem backtesting your portfolio: {str(e)}')
+        return redirect('/')
+
+
+@bp.route('/history/<int:id>')
+@login_required
+def history(id):
+    """
+    Show how each strategy's weight allocation has drifted across
+    successive /access runs, using the PortfolioSnapshot rows recorded
+    each time - unlike /access, which only ever shows the latest snapshot.
+    """
+    portfolio = _get_owned_portfolio_or_404(id)
+
+    snapshots = (PortfolioSnapshot.query
+                 .filter_by(portfolio_id=portfolio.id)
+                 .order_by(PortfolioSnapshot.created_at)
+                 .all())
+
+    if not snapshots:
+        flash('No analysis history yet for this portfolio - run Access at least once to start recording snapshots.')
+        return redirect(f'/access/{portfolio.id}')
+
+    # Group by strategy, preserving the order strategies were first seen,
+    # so the strategy picker below lists them consistently run to run.
+    by_strategy = {}
+    for snapshot in snapshots:
+        by_strategy.setdefault(snapshot.strategy, []).append(snapshot)
+
+    strategy = request.args.get('strategy')
+    if strategy not in by_strategy:
+        strategy = next(iter(by_strategy))
+
+    strategy_snapshots = by_strategy[strategy]
+    parsed_weights = [json.loads(s.weights) for s in strategy_snapshots]
+    symbols = sorted({symbol for weights in parsed_weights for symbol in weights})
+
+    dates = [s.created_at for s in strategy_snapshots]
+    weights_matrix = np.array([
+        [weights.get(symbol, 0.0) for symbol in symbols]
+        for weights in parsed_weights
+    ])
+
+    chart = None
+    if len(dates) >= 2:
+        # A single snapshot has nothing to show drift against - the table
+        # below still shows it, just without a (degenerate) one-point chart.
+        chart = PortfolioVisualizer.plot_weight_history(
+            dates, weights_matrix, symbols, f'{strategy} Weight History'
+        )
+
+    return render_template('history.html',
+                         portfolio=portfolio,
+                         strategies=list(by_strategy.keys()),
+                         selected_strategy=strategy,
+                         strategy_snapshots=strategy_snapshots,
+                         parsed_weights=parsed_weights,
+                         symbols=symbols,
+                         chart=chart)
 
 
 @bp.route('/update/<int:id>', methods=['GET', 'POST'])
@@ -272,8 +384,30 @@ def backtest(id):
 def update(id):
     portfolio = _get_owned_portfolio_or_404(id)
     if request.method == 'POST':
+        stocks_chosen = request.form.get('stocks', '')
+        symbols = [stock.strip().upper() for stock in stocks_chosen.split(",") if stock.strip()]
+
+        if not symbols:
+            flash('Please enter at least one stock symbol.')
+            return render_template('update.html', portfolio=portfolio)
+
+        # Same reasoning as portfolio creation: catch a bad ticker here,
+        # not later when the user clicks Access.
+        try:
+            _, invalid_symbols = StockDataFetcher().validate_symbols(symbols)
+        except Exception as e:
+            flash(f"Couldn't verify stock symbols right now ({str(e)}). Please try again.")
+            return render_template('update.html', portfolio=portfolio)
+
+        if invalid_symbols:
+            flash(
+                f"Could not find data for: {', '.join(invalid_symbols)}. "
+                f"Double-check the ticker symbols and try again."
+            )
+            return render_template('update.html', portfolio=portfolio)
+
         # Update portfolio stocks and long_only setting
-        portfolio.stocks = request.form['stocks']
+        portfolio.stocks = stocks_chosen
         portfolio.long_only = request.form.get('long_only', 'true').lower() == 'true'
 
         try:
@@ -282,7 +416,8 @@ def update(id):
             return redirect('/')
 
         except Exception as e:
-            return f'There was a problem updating your portfolio: {str(e)}'
+            flash(f'There was a problem updating your portfolio: {str(e)}')
+            return render_template('update.html', portfolio=portfolio)
 
     else:
         # Display update form

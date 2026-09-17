@@ -99,6 +99,57 @@
             padding: 0.75rem 1rem;
             margin-bottom: 0.75rem;
         }
+
+        /* Loading overlay - shown while a slow request (portfolio analysis,
+           backtest, stock lookup) is in flight, so the page doesn't look
+           frozen while the server fetches data and crunches numbers. */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+        }
+
+        /* The [hidden] attribute is toggled by JS to show/hide this. Author
+           CSS always wins over the browser's built-in `[hidden]{display:none}`
+           rule regardless of source order, so `display: flex` must only be
+           set for the *visible* state - otherwise this stays visible even
+           while the `hidden` attribute is present. */
+        .loading-overlay:not([hidden]) {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.25rem;
+            background-color: var(--bg-card);
+            padding: 2rem 2.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 4px solid rgba(255, 255, 255, 0.15);
+            border-top-color: var(--accent);
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #loading-message {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 1.05rem;
+        }
     </style>
 
     {% block head %}{% endblock %}
@@ -124,5 +175,44 @@
     <div class="container">
         {% block body %}{% endblock %}
     </div>
+
+    <div id="loading-overlay" class="loading-overlay" hidden>
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <p id="loading-message">Working…</p>
+        </div>
+    </div>
+
+    <script>
+        // Any link or form can opt into the loading overlay by adding
+        // class="js-loading-trigger" and (optionally) a data-loading-message
+        // attribute - no per-page wiring needed beyond that.
+        (function () {
+            function showLoadingOverlay(message) {
+                var overlay = document.getElementById('loading-overlay');
+                var messageEl = document.getElementById('loading-message');
+                if (messageEl && message) {
+                    messageEl.textContent = message;
+                }
+                if (overlay) {
+                    overlay.hidden = false;
+                }
+            }
+
+            document.addEventListener('click', function (event) {
+                var trigger = event.target.closest('a.js-loading-trigger');
+                if (trigger) {
+                    showLoadingOverlay(trigger.dataset.loadingMessage);
+                }
+            });
+
+            document.addEventListener('submit', function (event) {
+                var form = event.target;
+                if (form.classList && form.classList.contains('js-loading-trigger')) {
+                    showLoadingOverlay(form.dataset.loadingMessage);
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

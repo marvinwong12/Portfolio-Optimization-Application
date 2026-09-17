@@ -341,7 +341,10 @@
     <div>
         <a href="/" class="back-link">← Back to All Portfolios</a>
         &nbsp;|&nbsp;
-        <a href="/backtest/{{ portfolio.id }}" class="back-link">Walk-Forward Backtest →</a>
+        <a href="/backtest/{{ portfolio.id }}" class="back-link js-loading-trigger"
+           data-loading-message="Running walk-forward backtest…">Walk-Forward Backtest →</a>
+        &nbsp;|&nbsp;
+        <a href="/history/{{ portfolio.id }}" class="back-link">Weight History →</a>
     </div>
 
     <!-- Portfolio Details -->

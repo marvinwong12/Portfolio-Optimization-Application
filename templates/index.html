@@ -142,6 +142,29 @@
         text-decoration: underline;
     }
 
+    /* Delete is a POST form (not a GET link) so it's covered by CSRF
+       protection, but should still look like the Access/Update links. */
+    .inline-form {
+        display: inline;
+    }
+
+    .link-button {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        color: var(--accent);
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 0.3s ease;
+    }
+
+    .link-button:hover {
+        color: var(--accent-hover);
+        text-decoration: underline;
+    }
+
     /* ===== RESPONSIVE DESIGN ===== */
     @media (max-width: 768px) {
         .content {
@@ -230,9 +253,13 @@
             <td>{{ 'Long-only' if portfolio.long_only else 'Long-short' }}</td>  <!-- Add this cell -->
             <td>{{ portfolio.date_created.date() }}</td>
             <td>
-                <a href="access/{{portfolio.id}}">Access</a>
+                <a href="access/{{portfolio.id}}" class="js-loading-trigger"
+                   data-loading-message="Analyzing {{ portfolio.name }}…">Access</a>
                 <br>
-                <a href="/delete/{{portfolio.id}}">Delete</a>
+                <form action="/delete/{{portfolio.id}}" method="POST" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="link-button">Delete</button>
+                </form>
                 <br>
                 <a href="/update/{{portfolio.id}}">Update</a>
             </td>
@@ -243,33 +270,38 @@
     
     <div class="form">
         <h3 style="margin-top: 0; margin-bottom: 1.5rem;">Create New Portfolio</h3>
-        <form action="/" method="POST">
+        <form action="/" method="POST" class="js-loading-trigger"
+              data-loading-message="Checking ticker symbols and creating your portfolio…">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="name">Portfolio Name</label>
-                <input type="text" name="name" id="name" required 
+                <input type="text" name="name" id="name" required
+                       value="{{ request.form.get('name', '') }}"
                        placeholder="My Investment Portfolio">
             </div>
-            
+
             <div class="form-group">
                 <label for="stocks">Stock Symbols</label>
-                <input type="text" name="stocks" id="stocks" required 
+                <input type="text" name="stocks" id="stocks" required
+                       value="{{ request.form.get('stocks', '') }}"
                        placeholder="AAPL, MSFT, GOOGL, TSLA">
                 <small>Enter stock tickers separated by commas (e.g., AAPL, MSFT, GOOGL)</small>
             </div>
 
             <div class="form-group">
                 <label for="long_only">Portfolio Type:</label>
+                {% set selected_long_only = request.form.get('long_only', 'true') %}
                 <select name="long_only" id="long_only" required>
-                    <option value="true" selected>Long-only (No short selling)</option>
-                    <option value="false">Long-short (Allow short selling)</option>
+                    <option value="true" {% if selected_long_only == 'true' %}selected{% endif %}>Long-only (No short selling)</option>
+                    <option value="false" {% if selected_long_only == 'false' %}selected{% endif %}>Long-short (Allow short selling)</option>
                 </select>
             </div>
-            
-            
+
+
             <div class="form-group">
                 <label for="description">Description (optional)</label>
-                <textarea name="description" id="description" 
-                         placeholder="Brief description of this portfolio..."></textarea>
+                <textarea name="description" id="description"
+                         placeholder="Brief description of this portfolio...">{{ request.form.get('description', '') }}</textarea>
             </div>
             
             <input type="submit" value="Add Portfolio">
@@ -278,7 +310,9 @@
     <!-- Add this section after your portfolio creation form -->
     <div class="form" style="margin-top: 30px;">
         <h2>Individual Stock Analysis</h2>
-        <form action="/analyze_stock" method="POST">
+        <form action="/analyze_stock" method="POST" class="js-loading-trigger"
+              data-loading-message="Fetching and analyzing stock data…">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="ticker_symbol">Stock Ticker Symbol:</label>
                 <input type="text" name="ticker_symbol" id="ticker_symbol" required 

@@ -331,13 +331,26 @@ class PortfolioApp:
         optimal_weights = mc_weights[max_sharpe_idx]
         self.store_portfolio("Monte Carlo Optimal", optimal_weights, "Optimal portfolio from Monte Carlo simulation")
 
+        # Exact efficient frontier via constrained optimization, to overlay
+        # on the (necessarily noisy) Monte Carlo cloud below. Best-effort:
+        # if the solver fails on a pathological covariance matrix, fall
+        # back to showing the Monte Carlo cloud alone rather than failing
+        # the whole analysis over a chart enhancement.
+        try:
+            frontier = self.analyzer.efficient_frontier(num_points=50)
+        except Exception as e:
+            print(f"Warning: Could not compute exact efficient frontier: {e}")
+            frontier = None
+
         # Generate plots and save as images
         image_data = {}
 
-        # Efficient Frontier
-        optimal_metrics = self.analyzer.calculate_portfolio_metrics(optimal_weights)
+        # Efficient Frontier - mark the exact (closed-form) tangency
+        # portfolio rather than the Monte Carlo cloud's best sample, since
+        # that's the actual max-Sharpe point, not an approximation of it.
+        tangency_metrics = self.analyzer.calculate_portfolio_metrics(tangency_weights)
         image_data['efficient_frontier'] = PortfolioVisualizer.plot_efficient_frontier(
-            mc_results[0], mc_results[1], mc_results[2], optimal_metrics
+            mc_results[0], mc_results[1], mc_results[2], tangency_metrics, frontier=frontier
         )
 
         # Portfolio weights

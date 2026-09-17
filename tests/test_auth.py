@@ -1,4 +1,5 @@
-from portfolio_optimizer.models import db, User
+from portfolio_optimizer.models import db, User, Portfolios
+from portfolio_optimizer.auth import ensure_demo_user_seeded, DEMO_USERNAME, DEMO_PORTFOLIOS
 
 
 class TestRegister:
@@ -110,6 +111,66 @@ class TestLogout:
         client.get('/logout')
         response = client.get('/')
         assert response.status_code == 302  # bounced back to login
+
+
+class TestDemoLogin:
+    def test_login_page_shows_demo_button(self, client):
+        response = client.get('/login')
+        assert b'Try Demo' in response.data
+
+    def test_demo_login_before_seeding_flashes_and_redirects_to_login(self, client):
+        response = client.get('/demo-login')
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/login'
+
+    def test_demo_login_after_seeding_logs_in_and_redirects_to_index(self, client, app):
+        with app.app_context():
+            ensure_demo_user_seeded()
+
+        response = client.get('/demo-login')
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/'
+
+        index_response = client.get('/')
+        assert b'demo' in index_response.data  # "Signed in as demo"
+
+    def test_seeding_creates_sample_portfolios(self, app):
+        with app.app_context():
+            demo_user = ensure_demo_user_seeded()
+            portfolios = Portfolios.query.filter_by(user_id=demo_user.id).all()
+            assert {p.name for p in portfolios} == {p['name'] for p in DEMO_PORTFOLIOS}
+
+    def test_seeding_is_idempotent(self, app):
+        with app.app_context():
+            ensure_demo_user_seeded()
+            ensure_demo_user_seeded()  # calling it again shouldn't duplicate anything
+
+            assert User.query.filter_by(username=DEMO_USERNAME).count() == 1
+            demo_user = User.query.filter_by(username=DEMO_USERNAME).first()
+            assert Portfolios.query.filter_by(user_id=demo_user.id).count() == len(DEMO_PORTFOLIOS)
+
+    def test_cli_command_seeds_demo_user(self, app):
+        runner = app.test_cli_runner()
+        result = runner.invoke(args=['seed-demo-user'])
+        assert result.exit_code == 0
+        assert 'Demo user ready' in result.output
+
+        with app.app_context():
+            assert User.query.filter_by(username=DEMO_USERNAME).first() is not None
+
+    def test_demo_login_disabled_via_config(self, app):
+        app.config['DEMO_LOGIN_ENABLED'] = False
+        client = app.test_client()
+        with app.app_context():
+            ensure_demo_user_seeded()
+
+        response = client.get('/demo-login')
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/login'
+
+        # Confirm it actually stayed logged out, not just redirected.
+        index_response = client.get('/')
+        assert index_response.status_code == 302
 
 
 class TestProtectedRoutesRequireLogin:

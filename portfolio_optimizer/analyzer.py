@@ -1,6 +1,7 @@
 """Portfolio analysis and optimization math. No Flask/DB/network dependencies,
 so this module can be unit-tested in isolation with synthetic returns data."""
 import numpy as np
+from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 
 
@@ -16,6 +17,7 @@ class PortfolioAnalyzer:
         minimum_variance_portfolio: Calculate minimum variance portfolio weights
         tangency_portfolio: Calculate tangency portfolio (max Sharpe ratio) weights
         monte_carlo_simulation: Run Monte Carlo simulation for portfolio optimization
+        efficient_frontier: Solve the exact efficient frontier via constrained optimization
     """
 
     def __init__(self, returns_data, risk_free_rate, long_only=True):
@@ -239,3 +241,112 @@ class PortfolioAnalyzer:
         weights_record = list(weights_matrix)
 
         return results, weights_record
+
+    def efficient_frontier(self, num_points=50, max_weight=None):
+        """
+        Solve the exact efficient frontier: for a range of target returns
+        from the minimum-variance point up to the highest-returning asset,
+        minimize portfolio variance subject to that target - via
+        constrained optimization (SLSQP), not the Monte Carlo cloud used
+        elsewhere for visualization. Monte Carlo sampling only ever
+        approximates the frontier from below/inside; this actually solves
+        for it, and additionally supports a per-asset weight cap that the
+        closed-form tangency/min-variance solutions can't express at all.
+
+        Returns are only swept from the minimum-variance point upward,
+        since below it a higher return is achievable at the same risk -
+        that lower region is dominated and excluded from the efficient
+        frontier by definition.
+
+        Args:
+            num_points (int): Number of points along the frontier
+            max_weight (float): Optional per-asset weight cap (e.g. 0.4 for
+                a 40% max allocation to any single asset). Only meaningful
+                when long_only is True - ignored otherwise, since a
+                long-short portfolio's per-asset exposure isn't bounded by
+                the same [0, 1] logic.
+
+        Returns:
+            dict: {
+                'returns': np.array of target returns actually achieved,
+                'volatilities': np.array of minimized volatilities (same
+                    order as 'returns'),
+                'weights': list of np.array weight vectors, one per point,
+            }
+            Points where the optimizer failed to converge (e.g. an
+            infeasible max_weight) are silently skipped rather than
+            included with garbage values.
+
+        Raises:
+            ValueError: If max_weight is too restrictive to let weights
+                sum to 1 at all (max_weight * n_assets < 1).
+        """
+        n = len(self.mean_returns)
+        mean_returns = self.mean_returns.values
+        cov_matrix = self.cov_matrix
+
+        if self.long_only:
+            upper = max_weight if max_weight is not None else 1.0
+            if upper * n < 1.0:
+                raise ValueError(
+                    f"max_weight={max_weight} is infeasible for {n} assets: "
+                    f"weights can't sum to 1 if every asset is capped below 1/{n}."
+                )
+            bounds = tuple((0.0, upper) for _ in range(n))
+        else:
+            bounds = tuple((-1.0, 1.0) for _ in range(n))
+
+        def portfolio_variance(weights):
+            return float(weights.T @ cov_matrix @ weights)
+
+        x0 = np.ones(n) / n
+
+        # The efficient frontier proper only covers the non-dominated upper
+        # half of the return range: below the minimum-variance point, a
+        # higher return is achievable at the SAME risk, so that region is
+        # dominated and excluded by definition. Anchor the sweep's lower
+        # bound at the minimum-variance return under these exact bounds
+        # (not the closed-form unconstrained solution, which ignores
+        # max_weight) rather than the worst asset's return.
+        min_var_result = minimize(
+            portfolio_variance, x0, method='SLSQP',
+            bounds=bounds, constraints=({'type': 'eq', 'fun': lambda w: np.sum(w) - 1},),
+            options={'maxiter': 500, 'ftol': 1e-10},
+        )
+        lower_bound_return = (
+            float(min_var_result.x @ mean_returns) if min_var_result.success
+            else mean_returns.min()
+        )
+
+        target_returns = np.linspace(lower_bound_return, mean_returns.max(), num_points)
+
+        frontier_returns = []
+        frontier_volatilities = []
+        frontier_weights = []
+
+        # Warm-start the sweep from the minimum-variance solution (or equal
+        # weights if that failed to converge), then from each iteration's
+        # own result - consecutive target returns have similar optimal
+        # weights, so this converges faster than restarting from scratch.
+        x0 = min_var_result.x if min_var_result.success else np.ones(n) / n
+        for target in target_returns:
+            constraints = (
+                {'type': 'eq', 'fun': lambda w: np.sum(w) - 1},
+                {'type': 'eq', 'fun': lambda w, target=target: w @ mean_returns - target},
+            )
+            result = minimize(
+                portfolio_variance, x0, method='SLSQP',
+                bounds=bounds, constraints=constraints,
+                options={'maxiter': 500, 'ftol': 1e-10},
+            )
+            if result.success:
+                frontier_returns.append(target)
+                frontier_volatilities.append(np.sqrt(portfolio_variance(result.x)))
+                frontier_weights.append(result.x)
+                x0 = result.x
+
+        return {
+            'returns': np.array(frontier_returns),
+            'volatilities': np.array(frontier_volatilities),
+            'weights': frontier_weights,
+        }

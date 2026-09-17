@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Weight History - {{ portfolio.name }}</title>
+<style>
+    .content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text-primary);
+    }
+
+    h1 {
+        text-align: center;
+        font-size: 2.5rem;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    h2 {
+        color: var(--text-primary);
+        font-size: 1.8rem;
+        margin-bottom: 1.5rem;
+        font-weight: 500;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid var(--accent);
+    }
+
+    .portfolio-section {
+        margin: 2rem 0;
+        padding: 2rem;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .strategy-picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin: 1.5rem 0;
+    }
+
+    .strategy-picker a {
+        padding: 0.5rem 1rem;
+        border-radius: 1.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+    }
+
+    .strategy-picker a:hover {
+        border-color: var(--accent);
+        color: var(--text-primary);
+        text-decoration: none;
+    }
+
+    .strategy-picker a.active {
+        background-color: var(--accent);
+        border-color: var(--accent);
+        color: white;
+        font-weight: 600;
+    }
+
+    .portfolio-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        background-color: var(--bg-card);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .portfolio-table th {
+        background-color: rgba(74, 134, 232, 0.2);
+        color: var(--text-primary);
+        padding: 1rem;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--accent);
+        white-space: nowrap;
+    }
+
+    .portfolio-table td {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        white-space: nowrap;
+    }
+
+    .portfolio-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .portfolio-table tr:hover td {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .chart-container {
+        margin: 2rem 0;
+        text-align: center;
+        padding: 1.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 0.5rem;
+    }
+
+    .chart-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .empty-note {
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+
+    @media (max-width: 768px) {
+        .content { padding: 1rem; }
+        .portfolio-section { padding: 1.5rem; margin: 1.5rem 0; }
+        .portfolio-table { font-size: 0.9rem; }
+        .portfolio-table th, .portfolio-table td { padding: 0.75rem; }
+        h1 { font-size: 2rem; }
+        h2 { font-size: 1.5rem; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+
+<div class="content">
+    <h1>Weight History: {{ portfolio.name }}</h1>
+
+    <div>
+        <a href="/" class="back-link">← Back to All Portfolios</a>
+        &nbsp;|&nbsp;
+        <a href="/access/{{ portfolio.id }}" class="back-link">← Back to Analysis</a>
+        &nbsp;|&nbsp;
+        <a href="/backtest/{{ portfolio.id }}" class="back-link">Walk-Forward Backtest →</a>
+    </div>
+
+    <p style="color: var(--text-secondary); margin-top: 1.5rem;">
+        Each time you run <strong>Access</strong>, the resulting weights for every strategy are
+        recorded here - so you can see how the "optimal" allocation actually drifted across runs,
+        rather than only ever seeing the latest snapshot.
+    </p>
+
+    <div class="strategy-picker">
+        {% for strategy_name in strategies %}
+        <a href="/history/{{ portfolio.id }}?strategy={{ strategy_name|urlencode }}"
+           class="{{ 'active' if strategy_name == selected_strategy else '' }}">
+            {{ strategy_name }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="portfolio-section">
+        <h2>{{ selected_strategy }} Weights Over Time</h2>
+
+        {% if chart %}
+        <div class="chart-container">
+            <img src="data:image/png;base64,{{ chart }}" alt="{{ selected_strategy }} weight history">
+        </div>
+        {% else %}
+        <p class="empty-note">Only one snapshot recorded so far - run Access again later to start
+            seeing drift on the chart.</p>
+        {% endif %}
+
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Return</th>
+                        <th>Volatility</th>
+                        <th>Sharpe</th>
+                        {% for symbol in symbols %}
+                        <th>{{ symbol }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for snapshot in strategy_snapshots %}
+                    {% set row_weights = parsed_weights[loop.index0] %}
+                    <tr>
+                        <td>{{ snapshot.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ "%.2f"|format(snapshot.portfolio_return * 100) if snapshot.portfolio_return is not none else 'N/A' }}%</td>
+                        <td>{{ "%.2f"|format(snapshot.volatility * 100) if snapshot.volatility is not none else 'N/A' }}%</td>
+                        <td>{{ "%.2f"|format(snapshot.sharpe_ratio) if snapshot.sharpe_ratio is not none else 'N/A' }}</td>
+                        {% for symbol in symbols %}
+                        <td>{{ "%.1f"|format(row_weights.get(symbol, 0) * 100) }}%</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

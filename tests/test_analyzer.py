@@ -168,3 +168,67 @@ class TestMonteCarloSimulation:
         returns, volatilities, sharpe_ratios = results
         expected = (returns - RISK_FREE_RATE) / volatilities
         assert sharpe_ratios == pytest.approx(expected)
+
+
+class TestEfficientFrontier:
+    def test_weights_sum_to_one_and_are_non_negative_for_long_only(self, analyzer_long_only):
+        frontier = analyzer_long_only.efficient_frontier(num_points=15)
+        assert len(frontier['weights']) > 0
+        for weights in frontier['weights']:
+            assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+            assert np.all(weights >= -1e-8)
+
+    def test_volatility_is_non_decreasing_with_target_return(self, analyzer_long_only):
+        """The efficient frontier is, by definition, the minimum-variance
+        boundary: moving to a higher target return should never require
+        less risk than a lower one (that region would be dominated)."""
+        frontier = analyzer_long_only.efficient_frontier(num_points=20)
+        volatilities = frontier['volatilities']
+        # Allow tiny numerical slack rather than requiring a strictly
+        # monotonic sequence from a numerical optimizer.
+        assert np.all(np.diff(volatilities) >= -1e-6)
+
+    def test_frontier_volatility_is_at_least_the_global_minimum_variance(self, analyzer_long_only):
+        """Every point on the frontier is variance-minimized for its target
+        return, so none of them can beat the unconstrained global minimum
+        variance portfolio."""
+        min_var_weights = analyzer_long_only.minimum_variance_portfolio()
+        min_var_metrics = analyzer_long_only.calculate_portfolio_metrics(min_var_weights)
+
+        frontier = analyzer_long_only.efficient_frontier(num_points=20)
+        assert np.all(frontier['volatilities'] >= min_var_metrics['volatility'] - 1e-6)
+
+    def test_returns_are_within_asset_return_range(self, analyzer_long_only):
+        frontier = analyzer_long_only.efficient_frontier(num_points=10)
+        assert frontier['returns'].min() >= analyzer_long_only.mean_returns.min() - 1e-8
+        assert frontier['returns'].max() <= analyzer_long_only.mean_returns.max() + 1e-8
+
+    def test_max_weight_constraint_is_respected(self, analyzer_long_only):
+        frontier = analyzer_long_only.efficient_frontier(num_points=15, max_weight=0.4)
+        for weights in frontier['weights']:
+            assert np.all(weights <= 0.4 + 1e-6)
+            assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+
+    def test_infeasible_max_weight_raises(self, analyzer_long_only):
+        # 4 assets, so a 20% cap per asset can sum to at most 80% - infeasible.
+        with pytest.raises(ValueError, match='infeasible'):
+            analyzer_long_only.efficient_frontier(max_weight=0.2)
+
+    def test_long_short_weights_sum_to_one(self, analyzer_long_short):
+        frontier = analyzer_long_short.efficient_frontier(num_points=10)
+        assert len(frontier['weights']) > 0
+        for weights in frontier['weights']:
+            assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+
+    def test_tangency_portfolio_lies_on_or_above_the_frontier(self, analyzer_long_only):
+        """Sanity check tying the closed-form tangency solution to the
+        numerically-optimized frontier: for the tangency portfolio's own
+        return level, the frontier's minimized volatility should not be
+        higher than the tangency portfolio's actual volatility (the
+        tangency portfolio must itself be efficient)."""
+        tangency_weights = analyzer_long_only.tangency_portfolio()
+        tangency_metrics = analyzer_long_only.calculate_portfolio_metrics(tangency_weights)
+
+        frontier = analyzer_long_only.efficient_frontier(num_points=40)
+        closest_idx = np.argmin(np.abs(frontier['returns'] - tangency_metrics['return']))
+        assert frontier['volatilities'][closest_idx] <= tangency_metrics['volatility'] + 1e-3

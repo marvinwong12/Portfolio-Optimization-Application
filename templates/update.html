@@ -170,18 +170,22 @@
     </div>
 
     <div class="form">
-        <form action="/update/{{portfolio.id}}" method="POST">
+        <form action="/update/{{portfolio.id}}" method="POST" class="js-loading-trigger"
+              data-loading-message="Checking ticker symbols and saving changes…">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="stocks">Stock Symbols</label>
-                <input type="text" name="stocks" id="stocks" value="{{portfolio.stocks}}" 
+                <input type="text" name="stocks" id="stocks"
+                       value="{{ request.form.get('stocks', portfolio.stocks) }}"
                        placeholder="AAPL, MSFT, GOOGL, TSLA" required>
                 <small>Enter stock tickers separated by commas (e.g., AAPL, MSFT, GOOGL)</small>
             </div>
             <div class="form-group">
                 <label for="long_only">Portfolio Type:</label>
+                {% set selected_long_only = request.form.get('long_only', 'true' if portfolio.long_only else 'false') %}
                 <select name="long_only" id="long_only" required>
-                    <option value="true" {% if portfolio.long_only %}selected{% endif %}>Long-only (No short selling)</option>
-                    <option value="false" {% if not portfolio.long_only %}selected{% endif %}>Long-short (Allow short selling)</option>
+                    <option value="true" {% if selected_long_only == 'true' %}selected{% endif %}>Long-only (No short selling)</option>
+                    <option value="false" {% if selected_long_only == 'false' %}selected{% endif %}>Long-short (Allow short selling)</option>
                 </select>
             </div>
             

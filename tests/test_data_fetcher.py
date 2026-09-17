@@ -134,3 +134,63 @@ class TestGetRiskFreeRate:
         monkeypatch.setattr(data_fetcher_module.yf, 'download', fake_download)
         fetcher = StockDataFetcher()
         assert fetcher.get_risk_free_rate() is None
+
+
+class TestValidateSymbols:
+    def _fake_multi_symbol_download(self, valid_symbols, invalid_symbols):
+        """Build a MultiIndex download response the way real yfinance does
+        for a batch request: every requested symbol gets a 'Close' column,
+        but an invalid/delisted ticker's column is all-NaN rather than
+        simply missing."""
+        dates = pd.bdate_range('2024-01-02', periods=10)
+        frames = {}
+        for symbol in valid_symbols:
+            frames[(symbol, 'Close')] = np.random.default_rng(0).random(10) * 100 + 50
+        for symbol in invalid_symbols:
+            frames[(symbol, 'Close')] = np.full(10, np.nan)
+        columns = pd.MultiIndex.from_tuples(frames.keys())
+        return pd.DataFrame(np.column_stack(list(frames.values())), index=dates, columns=columns)
+
+    def test_all_valid_symbols(self, monkeypatch):
+        monkeypatch.setattr(
+            data_fetcher_module.yf, 'download',
+            lambda *a, **k: self._fake_multi_symbol_download(['AAPL', 'MSFT'], [])
+        )
+        fetcher = StockDataFetcher()
+        valid, invalid = fetcher.validate_symbols(['AAPL', 'MSFT'])
+        assert valid == ['AAPL', 'MSFT']
+        assert invalid == []
+
+    def test_flags_invalid_symbol_without_rejecting_valid_ones(self, monkeypatch):
+        monkeypatch.setattr(
+            data_fetcher_module.yf, 'download',
+            lambda *a, **k: self._fake_multi_symbol_download(['AAPL'], ['NOTREAL'])
+        )
+        fetcher = StockDataFetcher()
+        valid, invalid = fetcher.validate_symbols(['AAPL', 'NOTREAL'])
+        assert valid == ['AAPL']
+        assert invalid == ['NOTREAL']
+
+    def test_empty_input_returns_empty_lists(self):
+        fetcher = StockDataFetcher()
+        assert fetcher.validate_symbols([]) == ([], [])
+
+    def test_empty_download_response_marks_everything_invalid(self, monkeypatch):
+        monkeypatch.setattr(data_fetcher_module.yf, 'download', lambda *a, **k: pd.DataFrame())
+        fetcher = StockDataFetcher()
+        valid, invalid = fetcher.validate_symbols(['AAPL', 'MSFT'])
+        assert valid == []
+        assert invalid == ['AAPL', 'MSFT']
+
+    def test_result_is_cached(self, monkeypatch):
+        calls = {'n': 0}
+
+        def fake_download(*a, **k):
+            calls['n'] += 1
+            return self._fake_multi_symbol_download(['AAPL'], [])
+
+        monkeypatch.setattr(data_fetcher_module.yf, 'download', fake_download)
+        fetcher = StockDataFetcher()
+        fetcher.validate_symbols(['AAPL'])
+        fetcher.validate_symbols(['AAPL'])
+        assert calls['n'] == 1

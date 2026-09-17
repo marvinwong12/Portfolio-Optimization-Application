@@ -69,5 +69,44 @@ class Portfolios(db.Model):
     long_only = db.Column(db.Boolean, default=True, nullable=False)
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
 
+    snapshots = db.relationship('PortfolioSnapshot', backref='portfolio', lazy=True,
+                                 cascade='all, delete-orphan',
+                                 order_by='PortfolioSnapshot.created_at')
+
     def __repr__(self):
         return f'<Portfolio {self.name}>'
+
+
+class PortfolioSnapshot(db.Model):
+    """
+    A single strategy's computed weights at one point in time, recorded
+    every time /access re-runs the analysis. Where Portfolios.weights holds
+    only the latest Tangency weights (for backward compatibility), this
+    table accumulates one row per strategy per analysis run, so weight
+    drift over time can actually be shown rather than only the most recent
+    snapshot.
+
+    Attributes:
+        id (int): Primary key
+        portfolio_id (int): The portfolio this snapshot belongs to
+        strategy (str): Strategy name, e.g. "Tangency", "Minimum Variance",
+            "Equal Weight", "Monte Carlo Optimal"
+        weights (str): JSON string, {symbol: weight}
+        portfolio_return (float): Annualized expected return at the time
+            of this snapshot
+        volatility (float): Annualized volatility at the time of this snapshot
+        sharpe_ratio (float): Sharpe ratio at the time of this snapshot
+        created_at (datetime): When this snapshot was recorded
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+    portfolio_id = db.Column(db.Integer, db.ForeignKey('portfolios.id'), nullable=False, index=True)
+    strategy = db.Column(db.String(50), nullable=False)
+    weights = db.Column(db.String(1000), nullable=False)
+    portfolio_return = db.Column(db.Float)
+    volatility = db.Column(db.Float)
+    sharpe_ratio = db.Column(db.Float)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f'<PortfolioSnapshot {self.strategy} @ {self.created_at}>'

@@ -11,10 +11,12 @@ class PortfolioVisualizer:
     A class to create visualizations for portfolio analysis.
 
     Static Methods:
-        plot_efficient_frontier: Plot efficient frontier from Monte Carlo simulation
+        plot_efficient_frontier: Plot efficient frontier (Monte Carlo cloud + exact curve)
         plot_weights: Plot portfolio weights as pie chart
         plot_correlation_matrix: Plot correlation matrix heatmap
         plot_returns_time_series: Plot cumulative returns over time
+        plot_backtest_comparison: Plot walk-forward backtest equity curves
+        plot_weight_history: Plot how a strategy's weights drifted over time
     """
     @staticmethod
     def plot_to_base64():
@@ -28,27 +30,45 @@ class PortfolioVisualizer:
         return plot_data
 
     @staticmethod
-    def plot_efficient_frontier(returns, volatilities, sharpe_ratios, optimal_portfolio=None, save_path=None):
+    def plot_efficient_frontier(returns, volatilities, sharpe_ratios, optimal_portfolio=None,
+                                 frontier=None, save_path=None):
         """
-        Plot efficient frontier with Monte Carlo simulation results.
+        Plot the Monte Carlo cloud of random portfolios, optionally
+        overlaid with the exact efficient frontier curve (solved via
+        constrained optimization, not sampled) and the tangency portfolio.
 
         Args:
-            returns (np.array): Portfolio returns
-            volatilities (np.array): Portfolio volatilities
-            sharpe_ratios (np.array): Portfolio Sharpe ratios
-            optimal_portfolio (dict): Optimal portfolio metrics
+            returns (np.array): Portfolio returns (Monte Carlo cloud)
+            volatilities (np.array): Portfolio volatilities (Monte Carlo cloud)
+            sharpe_ratios (np.array): Portfolio Sharpe ratios (Monte Carlo cloud)
+            optimal_portfolio (dict): Metrics of the portfolio to mark with
+                a star (typically the exact tangency portfolio)
+            frontier (dict): Optional {'returns', 'volatilities'} from
+                PortfolioAnalyzer.efficient_frontier() - the exact frontier
+                curve, drawn on top of the (necessarily noisier) Monte
+                Carlo cloud
             save_path (str): Path to save the plot
         """
         plt.figure(figsize=(12, 8))
-        scatter = plt.scatter(volatilities, returns, c=sharpe_ratios, cmap='viridis', alpha=0.6)
+        scatter = plt.scatter(volatilities, returns, c=sharpe_ratios, cmap='viridis', alpha=0.4, zorder=1)
         plt.colorbar(scatter, label='Sharpe Ratio')
         plt.xlabel('Annualized Volatility')
         plt.ylabel('Annualized Return')
-        plt.title('Efficient Frontier - Monte Carlo Simulation')
+
+        if frontier is not None and len(frontier.get('returns', [])) > 0:
+            plt.plot(frontier['volatilities'], frontier['returns'],
+                     color='white', linewidth=3, zorder=2)
+            plt.plot(frontier['volatilities'], frontier['returns'],
+                     color='black', linewidth=1.5, label='Efficient Frontier (Exact)', zorder=3)
+            plt.title('Efficient Frontier: Exact Solution vs. Monte Carlo Sampling')
+        else:
+            plt.title('Efficient Frontier - Monte Carlo Simulation')
 
         if optimal_portfolio:
             plt.scatter(optimal_portfolio['volatility'], optimal_portfolio['return'],
-                       color='red', s=200, marker='*', label='Optimal Portfolio')
+                       color='red', s=200, marker='*', label='Tangency Portfolio', zorder=4)
+
+        if frontier is not None or optimal_portfolio:
             plt.legend()
 
         plt.grid(True, alpha=0.3)
@@ -165,6 +185,34 @@ class PortfolioVisualizer:
         plt.xlabel('Date')
         plt.grid(True, alpha=0.3)
         plt.legend(loc='upper left')
+        plt.tight_layout()
+
+        return PortfolioVisualizer.plot_to_base64()
+
+    @staticmethod
+    def plot_weight_history(dates, weights_matrix, symbols, title):
+        """
+        Plot how one strategy's weight allocation has drifted across
+        successive analysis runs - a line per asset, not just the most
+        recent snapshot.
+
+        Args:
+            dates (list): Snapshot timestamps, ascending
+            weights_matrix (np.array): Shape (len(dates), len(symbols))
+            symbols (list): Asset symbols, matching weights_matrix's columns
+            title (str): Chart title
+
+        Returns:
+            str: Base64 encoded image data
+        """
+        plt.figure(figsize=(12, 6))
+        for i, symbol in enumerate(symbols):
+            plt.plot(dates, weights_matrix[:, i], marker='o', label=symbol)
+        plt.title(title)
+        plt.ylabel('Weight')
+        plt.xlabel('Snapshot Date')
+        plt.grid(True, alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
         plt.tight_layout()
 
         return PortfolioVisualizer.plot_to_base64()

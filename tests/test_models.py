@@ -1,7 +1,9 @@
+import json
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from portfolio_optimizer.models import db, Portfolios, User
+from portfolio_optimizer.models import db, Portfolios, PortfolioSnapshot, User
 
 
 def _make_user(username='owner', email='owner@example.com', password='password123'):
@@ -95,3 +97,89 @@ class TestPortfolios:
             user = _make_user()
             portfolio = Portfolios(user_id=user.id, name='ReprTest', stocks='AAPL')
             assert repr(portfolio) == '<Portfolio ReprTest>'
+
+
+class TestPortfolioSnapshot:
+    def test_create_and_query_snapshot(self, app):
+        with app.app_context():
+            user = _make_user()
+            portfolio = Portfolios(user_id=user.id, name='Tech', stocks='AAPL,MSFT')
+            db.session.add(portfolio)
+            db.session.commit()
+
+            snapshot = PortfolioSnapshot(
+                portfolio_id=portfolio.id,
+                strategy='Tangency',
+                weights=json.dumps({'AAPL': 0.6, 'MSFT': 0.4}),
+                portfolio_return=0.12,
+                volatility=0.18,
+                sharpe_ratio=0.44,
+            )
+            db.session.add(snapshot)
+            db.session.commit()
+
+            fetched = PortfolioSnapshot.query.filter_by(portfolio_id=portfolio.id).first()
+            assert fetched is not None
+            assert fetched.strategy == 'Tangency'
+            assert json.loads(fetched.weights) == {'AAPL': 0.6, 'MSFT': 0.4}
+            assert fetched.sharpe_ratio == pytest.approx(0.44)
+            assert fetched.portfolio is portfolio  # backref
+            assert fetched in portfolio.snapshots  # relationship
+
+    def test_snapshot_requires_a_portfolio(self, app):
+        with app.app_context():
+            snapshot = PortfolioSnapshot(strategy='Tangency', weights='{}')
+            db.session.add(snapshot)
+            with pytest.raises(IntegrityError):
+                db.session.commit()
+
+    def test_deleting_portfolio_deletes_its_snapshots(self, app):
+        with app.app_context():
+            user = _make_user()
+            portfolio = Portfolios(user_id=user.id, name='ToCascade', stocks='AAPL')
+            db.session.add(portfolio)
+            db.session.commit()
+
+            db.session.add(PortfolioSnapshot(
+                portfolio_id=portfolio.id, strategy='Tangency', weights='{"AAPL": 1.0}',
+            ))
+            db.session.commit()
+
+            db.session.delete(portfolio)
+            db.session.commit()
+
+            assert PortfolioSnapshot.query.filter_by(portfolio_id=portfolio.id).first() is None
+
+    def test_snapshots_ordered_by_created_at(self, app):
+        with app.app_context():
+            user = _make_user()
+            portfolio = Portfolios(user_id=user.id, name='Ordered', stocks='AAPL')
+            db.session.add(portfolio)
+            db.session.commit()
+
+            # Insert out of order; the relationship's order_by should still
+            # return them oldest-first regardless of insertion order.
+            import datetime as dt
+            db.session.add(PortfolioSnapshot(
+                portfolio_id=portfolio.id, strategy='Tangency', weights='{}',
+                created_at=dt.datetime(2024, 3, 1),
+            ))
+            db.session.add(PortfolioSnapshot(
+                portfolio_id=portfolio.id, strategy='Tangency', weights='{}',
+                created_at=dt.datetime(2024, 1, 1),
+            ))
+            db.session.commit()
+
+            db.session.refresh(portfolio)
+            dates = [s.created_at for s in portfolio.snapshots]
+            assert dates == sorted(dates)
+
+    def test_repr(self, app):
+        with app.app_context():
+            user = _make_user()
+            portfolio = Portfolios(user_id=user.id, name='Tech', stocks='AAPL')
+            db.session.add(portfolio)
+            db.session.commit()
+
+            snapshot = PortfolioSnapshot(portfolio_id=portfolio.id, strategy='Tangency', weights='{}')
+            assert 'Tangency' in repr(snapshot)

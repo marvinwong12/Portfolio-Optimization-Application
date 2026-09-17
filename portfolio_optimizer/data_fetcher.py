@@ -1,7 +1,7 @@
 """Fetches and caches stock/market data from Yahoo Finance."""
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .cache import price_cache, risk_free_rate_cache
 
@@ -131,6 +131,61 @@ class StockDataFetcher:
         print(f"\nSuccessfully retrieved data for {len(successful_symbols)} symbols: {successful_symbols}")
         price_cache.set(cache_key, df)
         return df.copy()
+
+    def validate_symbols(self, symbols):
+        """
+        Check which of the given ticker symbols actually return price data,
+        without fetching a full history. Meant to catch typos/invalid
+        tickers immediately (e.g. when a portfolio is created or edited),
+        rather than only failing later when the portfolio is analyzed.
+
+        Args:
+            symbols (list): List of stock ticker symbols
+
+        Returns:
+            tuple: (valid_symbols, invalid_symbols), each preserving the
+                order of the input list
+        """
+        if not symbols:
+            return [], []
+
+        # A short window is enough to confirm a symbol exists and is
+        # actively trading - no need for the full history used elsewhere.
+        cache_key = ('validate', tuple(sorted(symbols)), datetime.now().date())
+        cached = price_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=10)
+        raw = yf.download(symbols, start=start_date.strftime('%Y-%m-%d'),
+                           end=end_date.strftime('%Y-%m-%d'), interval='1d',
+                           group_by='ticker', auto_adjust=True, progress=False)
+
+        valid_symbols = []
+        invalid_symbols = []
+        for symbol in symbols:
+            try:
+                if raw.empty:
+                    raise ValueError("No data returned")
+
+                if isinstance(raw.columns, pd.MultiIndex):
+                    closes = raw[symbol]['Close']
+                else:
+                    # Only one symbol was requested, so columns aren't
+                    # nested per-ticker.
+                    closes = raw['Close']
+
+                if closes.dropna().empty:
+                    raise ValueError("No data found")
+
+                valid_symbols.append(symbol)
+            except (KeyError, ValueError):
+                invalid_symbols.append(symbol)
+
+        result = (valid_symbols, invalid_symbols)
+        price_cache.set(cache_key, result)
+        return result
 
     def get_risk_free_rate(self):
         """
