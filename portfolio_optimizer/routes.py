@@ -10,7 +10,7 @@ from .models import db, Portfolios, PortfolioSnapshot
 from .portfolio_service import PortfolioApp
 from .stock_analysis import StockAnalysis
 from .data_fetcher import StockDataFetcher
-from .backtest import compare_strategies
+from .backtest import compare_strategies, benchmark_result, bootstrap_summary
 from .visualizer import PortfolioVisualizer
 
 bp = Blueprint('main', __name__)
@@ -40,7 +40,7 @@ def _safe_float(value):
 
 # Walk-forward backtest parameters: weights are re-estimated from the
 # trailing BACKTEST_LOOKBACK_DAYS of returns every BACKTEST_REBALANCE_DAYS,
-# and held fixed over each holding period.
+# and held (buy-and-hold, weights drifting) over each holding period.
 BACKTEST_LOOKBACK_DAYS = 252
 BACKTEST_REBALANCE_DAYS = 63
 # Fetch more history than /access does (3y): a backtest needs both the
@@ -257,16 +257,51 @@ def access(id):
         return redirect('/')
 
 
+BENCHMARK_SYMBOL = 'SPY'
+BENCHMARK_NAME = 'SPY (Buy & Hold)'
+DEFAULT_COST_BPS = 10.0
+MAX_COST_BPS = 200.0
+STRATEGY_DISPLAY_NAMES = {
+    'tangency': 'Tangency',
+    'minimum_variance': 'Minimum Variance',
+    'equal_weight': 'Equal Weight',
+}
+
+
+def _parse_cost_bps(raw_value):
+    """Parse the ?cost_bps= query param, falling back to the default for
+    anything missing, non-numeric, non-finite, or outside [0, MAX_COST_BPS]."""
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_COST_BPS
+    if not np.isfinite(value) or value < 0 or value > MAX_COST_BPS:
+        return DEFAULT_COST_BPS
+    return value
+
+
+def _fetch_benchmark_returns(fetcher, start_date, end_date):
+    """Daily returns of the benchmark (SPY), with a timezone-naive index so
+    it lines up with the price data the strategies are built from."""
+    prices = fetcher.get_historical_data(BENCHMARK_SYMBOL, start_date, end_date)
+    if getattr(prices.index, 'tz', None) is not None:
+        prices.index = prices.index.tz_localize(None)
+    return prices.pct_change().dropna()
+
+
 @bp.route('/backtest/<int:id>')
 @login_required
 def backtest(id):
     """
-    Walk-forward backtest a portfolio's strategies against each other, to
-    check whether the optimization actually would have outperformed a naive
-    equal-weight benchmark out-of-sample - as opposed to /access, which only
-    shows weights computed once from a single static lookback window.
+    Walk-forward backtest a portfolio's strategies against each other and
+    against an S&P 500 (SPY) buy-and-hold benchmark, net of transaction
+    costs, with bootstrap confidence intervals - to check whether the
+    optimization actually would have outperformed out-of-sample and whether
+    any difference is statistically distinguishable from noise. Unlike
+    /access, which only shows weights fitted once to a single window.
     """
     portfolio = _get_owned_portfolio_or_404(id)
+    cost_bps = _parse_cost_bps(request.args.get('cost_bps'))
 
     try:
         symbols = [stock.strip().upper() for stock in portfolio.stocks.split(",") if stock.strip()]
@@ -295,25 +330,52 @@ def backtest(id):
             )
             return redirect('/')
 
-        results = compare_strategies(
+        strategy_results = compare_strategies(
             returns, risk_free_rate,
             strategies=('tangency', 'minimum_variance', 'equal_weight'),
             long_only=portfolio.long_only,
             lookback_days=BACKTEST_LOOKBACK_DAYS,
             rebalance_days=BACKTEST_REBALANCE_DAYS,
+            transaction_cost_bps=cost_bps,
         )
+        results = {STRATEGY_DISPLAY_NAMES[key]: result for key, result in strategy_results.items()}
 
-        equity_curves = {name: result.equity_curve for name, result in results.items()}
-        chart = PortfolioVisualizer.plot_backtest_comparison(equity_curves)
-        metrics_by_strategy = {name: result.metrics for name, result in results.items()}
+        # An outside benchmark: equal-weight among the user's own picks is a
+        # low bar, so also compare against simply owning the S&P 500. Best
+        # effort - the backtest is still useful if the benchmark fetch fails.
+        benchmark_available = True
+        try:
+            out_of_sample_index = strategy_results['equal_weight'].daily_returns.index
+            results[BENCHMARK_NAME] = benchmark_result(
+                BENCHMARK_NAME,
+                _fetch_benchmark_returns(fetcher, start_date, end_date),
+                out_of_sample_index, risk_free_rate,
+            )
+        except Exception as e:
+            print(f"Warning: could not build the {BENCHMARK_SYMBOL} benchmark: {e}")
+            benchmark_available = False
+
+        baselines = ['Equal Weight'] + ([BENCHMARK_NAME] if benchmark_available else [])
+        bootstrap = bootstrap_summary(results, baselines, risk_free_rate)
+
+        chart = PortfolioVisualizer.plot_backtest_comparison(
+            {name: result.equity_curve for name, result in results.items()}
+        )
 
         return render_template('backtest.html',
                              portfolio=portfolio,
                              symbols=symbols,
                              chart=chart,
-                             metrics_by_strategy=metrics_by_strategy,
+                             metrics_by_strategy={name: r.metrics for name, r in results.items()},
+                             sharpe_ci=bootstrap['sharpe_ci'],
+                             versus=bootstrap['versus'],
+                             benchmark_name=BENCHMARK_NAME,
+                             benchmark_available=benchmark_available,
+                             cost_bps=cost_bps,
+                             max_cost_bps=MAX_COST_BPS,
                              lookback_days=BACKTEST_LOOKBACK_DAYS,
                              rebalance_days=BACKTEST_REBALANCE_DAYS,
+                             n_days=len(next(iter(results.values())).daily_returns),
                              risk_free_rate=risk_free_rate)
 
     except Exception as e:

@@ -88,6 +88,7 @@
     }
 
     .badge {
+        white-space: nowrap;
         display: inline-block;
         padding: 0.35rem 0.75rem;
         border-radius: 1rem;
@@ -132,6 +133,49 @@
         margin-top: 1rem;
     }
 
+    .cost-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .cost-form label {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .cost-form input[type="number"] {
+        width: 110px;
+        padding: 0.6rem;
+        background-color: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.25rem;
+        color: var(--text-primary);
+        font-family: inherit;
+    }
+
+    .cost-form button {
+        background-color: var(--accent);
+        color: white;
+        padding: 0.6rem 1.25rem;
+        border: none;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        font-size: 1rem;
+    }
+
+    .cost-form button:hover {
+        background-color: var(--accent-hover);
+    }
+
+    .ci-range {
+        display: block;
+        margin-top: 0.35rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
     @media (max-width: 768px) {
         .content { padding: 1rem; }
         .portfolio-section { padding: 1.5rem; margin: 1.5rem 0; }
@@ -170,6 +214,23 @@
     </div>
 
     <div class="portfolio-section">
+        <h2>Assumptions</h2>
+        <form method="get" action="/backtest/{{ portfolio.id }}" class="cost-form js-loading-trigger"
+              data-loading-message="Re-running the backtest with the new cost assumption…">
+            <label for="cost_bps">Transaction cost (basis points per dollar traded)</label>
+            <input type="number" id="cost_bps" name="cost_bps" min="0" max="{{ max_cost_bps|int }}" step="1"
+                   value="{{ '%g'|format(cost_bps) }}">
+            <button type="submit">Re-run</button>
+        </form>
+        <p class="methodology-note">
+            Currently {{ '%g'|format(cost_bps) }} bps ({{ "%.2f"|format(cost_bps / 100) }}% of every dollar bought or sold),
+            charged at each rebalance - including the initial purchase - on the amount actually traded after weights have
+            drifted. The strategies are shown net of these costs. {% if benchmark_available %}The {{ benchmark_name }}
+            benchmark is a total-return series that never rebalances, so it pays none.{% endif %}
+        </p>
+    </div>
+
+    <div class="portfolio-section">
         <h2>Realized (Out-of-Sample) Performance</h2>
         <div style="overflow-x: auto;">
             <table class="portfolio-table">
@@ -179,14 +240,15 @@
                         <th>Total Return</th>
                         <th>Annualized Return</th>
                         <th>Annualized Volatility</th>
-                        <th>Sharpe Ratio</th>
+                        <th>Sharpe Ratio (95% CI)</th>
                         <th>Max Drawdown</th>
+                        <th>Annual Turnover</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for name, metrics in metrics_by_strategy.items() %}
                     <tr>
-                        <td><strong>{{ name|replace('_', ' ')|title }}</strong></td>
+                        <td><strong>{{ name }}</strong></td>
                         <td>
                             <span class="badge {% if metrics.total_return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
                                 {{ "%.2f"|format(metrics.total_return * 100) }}%
@@ -202,17 +264,68 @@
                             <span class="badge {% if metrics.sharpe_ratio > 1 %}badge-positive{% elif metrics.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
                                 {{ "%.2f"|format(metrics.sharpe_ratio) }}
                             </span>
+                            <span class="ci-range">[{{ "%.2f"|format(sharpe_ci[name].ci_low) }}, {{ "%.2f"|format(sharpe_ci[name].ci_high) }}]</span>
                         </td>
                         <td>
                             <span class="badge badge-negative">
                                 {{ "%.2f"|format(metrics.max_drawdown * 100) }}%
                             </span>
                         </td>
+                        <td>{{ "%.0f"|format(metrics.annual_turnover * 100) }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <div class="portfolio-section">
+        <h2>Are the Differences Real?</h2>
+        <p class="methodology-note" style="margin-top: 0;">
+            A backtest is one historical path, so a gap in Sharpe ratios can easily be luck. Each row below is a 95%
+            confidence interval for the <em>difference</em> in Sharpe ratio between a strategy and a baseline, from a
+            block bootstrap ({{ n_days }} out-of-sample trading days, 21-day blocks so volatility clustering is
+            preserved, 2,000 resamples, both series resampled on the same dates). If the interval includes zero, the
+            data cannot distinguish the two.
+        </p>
+        {% for baseline, comparisons in versus.items() %}
+        <h3 style="margin-top: 1.5rem;">Compared with {{ baseline }}</h3>
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>Sharpe Difference</th>
+                        <th>95% Confidence Interval</th>
+                        <th>Chance It's Better</th>
+                        <th>Verdict</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, result in comparisons.items() %}
+                    <tr>
+                        <td><strong>{{ name }}</strong></td>
+                        <td>{{ "%+.2f"|format(result.difference) }}</td>
+                        <td>[{{ "%+.2f"|format(result.ci_low) }}, {{ "%+.2f"|format(result.ci_high) }}]</td>
+                        <td>{{ "%.0f"|format(result.prob_a_better * 100) }}%</td>
+                        <td>
+                            {% if result.significant and result.difference > 0 %}
+                            <span class="badge badge-positive">Significantly better</span>
+                            {% elif result.significant %}
+                            <span class="badge badge-negative">Significantly worse</span>
+                            {% else %}
+                            <span class="badge badge-neutral">Not distinguishable</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+        {% if not benchmark_available %}
+        <p class="methodology-note">The S&amp;P 500 (SPY) benchmark couldn't be loaded, so only the comparison with Equal Weight is shown.</p>
+        {% endif %}
     </div>
 
     <div class="portfolio-section">

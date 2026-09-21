@@ -45,36 +45,46 @@ harder — and more honest — question is whether those weights would have
 actually performed well *afterward*.
 
 The backtest module answers that by walking forward through history: at each
-rebalance date, it estimates weights using only the trailing 252 trading
-days (never touching the period it's about to be evaluated on), holds those
-weights fixed through the next 63-day period, and records the realized
-return. Repeating this across years of data produces a genuine
-out-of-sample equity curve per strategy.
+rebalance date it estimates weights using only the trailing 252 trading days
+(never touching the period it's about to be evaluated on), trades into them,
+and holds through the next 63 days with weights drifting as prices move
+(true buy-and-hold). Repeating this across years of data produces a genuine
+out-of-sample equity curve per strategy - net of transaction costs, and
+alongside an S&P 500 (SPY) buy-and-hold benchmark, because beating
+equal-weight among your own picks is a low bar.
 
 Running it on five mega-cap stocks (AAPL, MSFT, GOOGL, AMZN, JPM) over the
-last six years gives:
+last six years (1,252 out-of-sample trading days), at 10 bps per dollar
+traded, gives:
 
-| Strategy | Annualized Return | Annualized Volatility | Sharpe Ratio | Max Drawdown |
-|---|---|---|---|---|
-| Tangency (max Sharpe) | 16.2% | 25.0% | 0.49 | -32.3% |
-| Minimum Variance | 16.5% | 20.6% | 0.61 | -34.6% |
-| Equal Weight | 18.1% | 22.9% | 0.62 | -33.9% |
+| Strategy | Ann. Return | Ann. Volatility | Sharpe (95% CI) | Max Drawdown | Turnover / yr |
+|---|---|---|---|---|---|
+| Tangency (max Sharpe) | 15.5% | 25.0% | 0.46 [-0.38, 1.53] | -33.0% | 136% |
+| Minimum Variance | 16.1% | 20.5% | 0.59 [-0.27, 1.67] | -35.3% | 40% |
+| Equal Weight | 17.5% | 22.7% | 0.60 [-0.27, 1.74] | -34.0% | 13% |
+| SPY (Buy & Hold) | 13.3% | 17.2% | 0.54 [-0.30, 1.60] | -24.5% | 0% |
 
-For this particular basket, the naive equal-weight benchmark matches or beats
-both "optimized" portfolios on Sharpe ratio. That's not a bug; it's the
-textbook estimation-error problem with mean-variance optimization (Michaud's
-"error maximization"): with only a handful of assets and a noisy
-covariance/return estimate, the optimizer chases sampling noise in the
-lookback window that doesn't persist out-of-sample. Minimum variance
-essentially ties equal-weight on risk-adjusted return (0.61 vs 0.62) while
-running noticeably less volatility, because it only depends on the covariance
-matrix (better estimated than expected returns); tangency, which also needs
-the noisier return forecast, lags both. Each rebalance applies its target
-weights as a constant mix (implicitly rebalanced daily, not allowed to drift),
-and long-only weights come from a properly constrained optimization, not
-clipped closed-form solutions. Surfacing this
-kind of result — rather than only ever showing a favorable backtest — is the
-whole point of validating with real out-of-sample testing.
+**The honest reading is that none of these differences is statistically
+real.** A point estimate says equal-weight edges minimum variance, which edges
+the S&P 500, which edges tangency - but the confidence intervals (a paired
+block bootstrap, 21-day blocks so volatility clustering is preserved, 2,000
+resamples) tell a different story. Every strategy's Sharpe interval spans
+roughly -0.3 to +1.7, and every pairwise difference's interval includes zero
+(for example, Tangency vs. Equal Weight: -0.13, 95% CI [-0.62, +0.29], a 27%
+chance of being better). Five years of daily data simply isn't enough to rank
+these portfolios.
+
+What the data *does* support is narrower. The mean-variance optimizers did not
+demonstrably beat a naive equal-weight portfolio - consistent with the
+estimation-error problem in mean-variance optimization (Michaud's "error
+maximization"): with few assets and noisy return estimates, the optimizer
+chases sampling noise that doesn't persist out-of-sample. And costs punish the
+strategy that trades most: tangency turns over 136% of the portfolio a year, so
+even 10 bps costs it about 0.4 points of annual return, versus almost nothing
+for equal weight. SPY delivered the lowest return but also the lowest
+volatility and drawdown, for a risk-adjusted result indistinguishable from the
+rest. Surfacing this kind of result - rather than only ever showing a
+favorable point estimate - is the whole point of validating out-of-sample.
 
 ## Features
 
@@ -87,8 +97,11 @@ whole point of validating with real out-of-sample testing.
   via constrained optimization (`scipy.optimize`, SLSQP) rather than sampled
   - which also supports an optional per-asset weight cap that the
   closed-form tangency/min-variance solutions can't express
-- **Walk-forward backtesting** comparing each strategy's realized,
-  out-of-sample performance against an equal-weight benchmark
+- **Walk-forward backtesting** of each strategy's realized, out-of-sample
+  performance, net of an adjustable transaction cost, against equal-weight and
+  an S&P 500 (SPY) buy-and-hold benchmark - with block-bootstrap confidence
+  intervals on every Sharpe ratio and on each difference, so you can see
+  whether a gap is real or noise
 - **Weight history**: every `/access` run records a snapshot of each
   strategy's weights, so `/history/<id>` can chart how the "optimal"
   allocation actually drifted across runs instead of only showing the
@@ -130,7 +143,7 @@ portfolio_optimizer/
 ├── portfolio_service.py  # Orchestrates fetch -> analyze -> store
 └── stock_analysis.py     # Single-stock fundamental/technical analysis
 migrations/               # Alembic schema migrations (Flask-Migrate)
-tests/                    # pytest suite (169 tests)
+tests/                    # pytest suite (220 tests)
 ```
 
 ## Tech stack
@@ -176,7 +189,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-169 tests cover the optimization math (including regression tests for a
+220 tests cover the optimization math (including regression tests for a
 handful of real bugs found along the way — a tangency-weight sign flip, a
 risk-free-rate unit mismatch, a `None` dividend yield crash), the exact
 efficient frontier (bounds, monotonicity, dominated-region exclusion), the

@@ -444,3 +444,85 @@ class TestHistoryRoute:
         response = client.get(f'/history/{portfolio_id}?strategy=NotARealStrategy')
         assert response.status_code == 200
         assert b'Tangency Weights Over Time' in response.data
+
+
+class TestBacktestBenchmarkCostsAndConfidence:
+    def _get(self, app, client, user_id, query=''):
+        portfolio_id = _create_portfolio(app, user_id, name='Tech', stocks='AAA,BBB', long_only=True)
+        return client.get(f'/backtest/{portfolio_id}{query}')
+
+    def test_includes_the_spy_benchmark(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        response = self._get(app, client, user_id)
+        assert response.status_code == 200
+        assert b'SPY (Buy &amp; Hold)' in response.data
+
+    def test_shows_confidence_intervals_and_significance_verdicts(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        html = self._get(app, client, user_id).data.decode()
+        assert 'Sharpe Ratio (95% CI)' in html
+        assert 'Are the Differences Real?' in html
+        assert 'Compared with Equal Weight' in html
+        assert 'Compared with SPY (Buy &amp; Hold)' in html
+        assert any(verdict in html for verdict in
+                   ('Significantly better', 'Significantly worse', 'Not distinguishable'))
+
+    def test_shows_turnover_column(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        assert b'Annual Turnover' in self._get(app, client, user_id).data
+
+    def test_cost_defaults_to_10_bps(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        assert b'name="cost_bps"' in self._get(app, client, user_id).data
+        assert b'value="10"' in self._get(app, client, user_id).data
+
+    def test_cost_query_param_is_used(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        response = self._get(app, client, user_id, '?cost_bps=50')
+        assert b'value="50"' in response.data
+
+    @pytest.mark.parametrize('bad_value', ['abc', '-5', '9999', 'nan', 'inf', ''])
+    def test_invalid_cost_falls_back_to_the_default(self, app, logged_in_client, mocked_yfinance, bad_value):
+        client, user_id = logged_in_client
+        response = self._get(app, client, user_id, f'?cost_bps={bad_value}')
+        assert response.status_code == 200
+        assert b'value="10"' in response.data
+
+    def test_higher_cost_lowers_reported_returns(self, app, logged_in_client, mocked_yfinance):
+        import re
+        client, user_id = logged_in_client
+        portfolio_id = _create_portfolio(app, user_id, name='Tech', stocks='AAA,BBB', long_only=True)
+
+        def tangency_total_return(cost):
+            html = client.get(f'/backtest/{portfolio_id}?cost_bps={cost}').data.decode()
+            row = html.split('<strong>Tangency</strong>')[1]
+            return float(re.search(r'(-?\d+\.\d+)%', row).group(1))
+
+        assert tangency_total_return(200) < tangency_total_return(0)
+
+    def test_page_still_works_when_the_benchmark_cannot_be_loaded(
+        self, app, logged_in_client, mocked_yfinance, monkeypatch
+    ):
+        from portfolio_optimizer import routes
+
+        def broken(*args, **kwargs):
+            raise RuntimeError('benchmark feed down')
+
+        monkeypatch.setattr(routes, '_fetch_benchmark_returns', broken)
+        client, user_id = logged_in_client
+        response = self._get(app, client, user_id)
+
+        assert response.status_code == 200
+        assert b'SPY (Buy &amp; Hold)' not in response.data
+        assert b"couldn't be loaded" in response.data
+        assert b'Compared with Equal Weight' in response.data
+
+
+class TestParseCostBps:
+    @pytest.mark.parametrize('raw, expected', [
+        (None, 10.0), ('', 10.0), ('abc', 10.0), ('-1', 10.0), ('201', 10.0),
+        ('nan', 10.0), ('inf', 10.0), ('0', 0.0), ('25', 25.0), ('7.5', 7.5), ('200', 200.0),
+    ])
+    def test_parsing_and_fallback(self, raw, expected):
+        from portfolio_optimizer.routes import _parse_cost_bps
+        assert _parse_cost_bps(raw) == expected

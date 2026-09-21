@@ -40,8 +40,10 @@ class TestEqualWeightBacktest:
         returns = _synthetic_returns(n=400, seed=2)
         lookback = 100
 
+        # drift=False is the constant-mix model: the same target weights are
+        # applied to every day's returns.
         result = run_backtest(returns, RISK_FREE_RATE, strategy='equal_weight',
-                               lookback_days=lookback, rebalance_days=50)
+                               lookback_days=lookback, rebalance_days=50, drift=False)
 
         n_assets = returns.shape[1]
         expected = returns.iloc[lookback:].values @ (np.ones(n_assets) / n_assets)

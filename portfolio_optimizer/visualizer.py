@@ -179,7 +179,10 @@ class PortfolioVisualizer:
         """
         plt.figure(figsize=(12, 6))
         for name, curve in equity_curves.items():
-            curve.plot(label=name)
+            # Benchmarks (e.g. "SPY (Buy & Hold)") are drawn dashed and grey
+            # so they read as a reference line, not another strategy.
+            style = {'linestyle': '--', 'color': 'gray'} if name.startswith('SPY') else {}
+            curve.plot(label=name, **style)
         plt.title('Walk-Forward Backtest: Growth of $1 (Out-of-Sample)')
         plt.ylabel('Portfolio Value ($)')
         plt.xlabel('Date')
