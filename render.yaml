@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: portfolio-optimization-application
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # Free-tier disk is ephemeral, so SQLite starts empty on every deploy and
+    # spin-down restart: rebuild the schema and re-seed the demo account each
+    # boot. One worker (with threads) because the price cache is per-process
+    # and the free tier has 512MB RAM; a long timeout because a cold /access
+    # or /backtest fetches years of prices before responding.
+    startCommand: flask db upgrade && flask seed-demo-user && gunicorn app:app --workers 1 --threads 4 --timeout 120
+    envVars:
+      - key: FLASK_APP
+        value: app.py
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: SECRET_KEY
+        generateValue: true

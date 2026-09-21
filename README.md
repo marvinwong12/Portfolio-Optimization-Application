@@ -176,3 +176,16 @@ backtest engine's no-lookahead guarantee, weight-history snapshot
 persistence, caching, per-user access control, and CSRF protection
 (verified end-to-end with it explicitly turned back on), all with
 `yfinance` mocked so the suite runs fully offline.
+
+## Deploying to Render (free tier)
+
+`render.yaml` describes the service. If you set it up by hand in the dashboard instead, use:
+
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `flask db upgrade && flask seed-demo-user && gunicorn app:app --workers 1 --threads 4 --timeout 120`
+- **Environment variables:** `SECRET_KEY` (required - the app refuses to boot without it), `FLASK_APP=app.py`, `PYTHON_VERSION=3.13.5`
+
+The free tier's filesystem is ephemeral, so the SQLite database (registered users, saved
+portfolios) resets on every deploy and after each idle spin-down. The start command re-creates
+the schema and the **Try Demo** account on every boot, so the demo always works; for durable
+user data, attach a persistent disk or switch to Render Postgres.
