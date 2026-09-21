@@ -209,6 +209,30 @@
         color: var(--accent);
     }
 
+    /* ===== RISK ANALYSIS ===== */
+    .risk-note {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        margin: 0.5rem 0 1.5rem;
+    }
+
+    .risk-bar-track {
+        display: inline-block;
+        width: 140px;
+        height: 10px;
+        margin-right: 0.75rem;
+        vertical-align: middle;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 5px;
+        overflow: hidden;
+    }
+
+    .risk-bar-fill {
+        display: block;
+        height: 100%;
+        background-color: var(--accent);
+    }
+
     /* ===== BADGES AND TAGS ===== */
     .badge {
         display: inline-block;
@@ -411,6 +435,81 @@
         </div>
     </div>
 
+    <!-- Risk Analysis -->
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Risk Analysis</h2>
+        <p class="risk-note">
+            Historical (not parametric) measures over the same window as the rest of this page, using each
+            strategy's weights held constant. VaR is the one-day loss exceeded on only 5% of days; CVaR is the
+            average loss on those worst 5% of days; max drawdown is the worst peak-to-trough decline.
+            These are in-sample - the strategies' weights were fitted to this same history.
+        </p>
+        <div style="overflow-x: auto;">
+            <table class="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>1-Day VaR (95%)</th>
+                        <th>1-Day CVaR (95%)</th>
+                        <th>Max Drawdown</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, data in comparison.items() %}
+                    <tr>
+                        <td><strong>{{ name }}</strong></td>
+                        <td>{{ "%.2f"|format(data.var_95 * 100) }}%</td>
+                        <td>{{ "%.2f"|format(data.cvar_95 * 100) }}%</td>
+                        <td><span class="badge badge-negative">{{ "%.2f"|format(data.max_drawdown * 100) }}%</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <h3 style="margin-top: 2rem;"><span class="icon"></span>Where the Risk Comes From</h3>
+        <p class="risk-note">
+            Each asset's share of total portfolio variance versus its weight. An asset whose risk share is well above
+            its weight (flagged in red) is contributing more risk than its allocation suggests.
+        </p>
+        {% for name, data in comparison.items() %}
+        <div class="weights-table-container">
+            <h4>{{ name }}</h4>
+            <div style="overflow-x: auto;">
+                <table class="weights-table">
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Weight</th>
+                            <th>Share of Risk</th>
+                            <th>Risk vs. Weight</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for symbol, risk_share in data.risk_contributions.items() %}
+                        {% set weight = portfolio_weights[name][symbol] %}
+                        {% set gap = ((risk_share - weight) * 100)|round(1) + 0 %}
+                        <tr>
+                            <td><strong>{{ symbol }}</strong></td>
+                            <td>{{ "%.1f"|format(weight * 100) }}%</td>
+                            <td>
+                                <span class="risk-bar-track"><span class="risk-bar-fill" style="width: {{ [[risk_share * 100, 0]|max, 100]|min }}%;"></span></span>
+                                {{ "%.1f"|format(risk_share * 100) }}%
+                            </td>
+                            <td>
+                                <span class="badge {% if gap > 5 %}badge-negative{% elif gap < -5 %}badge-positive{% else %}badge-neutral{% endif %}">
+                                    {{ "%+.1f"|format(gap) }} pts
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
     <!-- Portfolio Weights -->
     <div class="portfolio-section">
         <h2><span class="icon"></span>Asset Allocation</h2>
@@ -530,7 +629,7 @@
                 <strong>Risk-Free Rate</strong>
                 <span>
                     {% if analysis_details.risk_free_rate is not none %}
-                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (daily)
+                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (annual)
                     {% else %}
                         N/A
                     {% endif %}

@@ -232,3 +232,166 @@ class TestEfficientFrontier:
         frontier = analyzer_long_only.efficient_frontier(num_points=40)
         closest_idx = np.argmin(np.abs(frontier['returns'] - tangency_metrics['return']))
         assert frontier['volatilities'][closest_idx] <= tangency_metrics['volatility'] + 1e-3
+
+
+def _clipped_minimum_variance(analyzer):
+    """The old long-only shortcut: unconstrained solution, clip, renormalize."""
+    weights = np.linalg.solve(analyzer.cov_matrix, np.ones(len(analyzer.mean_returns)))
+    weights = np.maximum(weights / weights.sum(), 0)
+    return weights / weights.sum()
+
+
+def _clipped_tangency(analyzer):
+    excess = (analyzer.mean_returns - analyzer.risk_free_rate).values
+    weights = np.maximum(np.linalg.solve(analyzer.cov_matrix, excess), 0)
+    return weights / weights.sum()
+
+
+def _one_factor_returns(seed, n_assets=6):
+    """Assets with differing betas and idiosyncratic vols - the setting in
+    which clipping an unconstrained solution is visibly suboptimal."""
+    rng = np.random.default_rng(seed)
+    common = rng.normal(0, 0.01, (300, 1))
+    betas = rng.uniform(0.2, 1.6, n_assets)
+    vols = rng.uniform(0.004, 0.015, n_assets)
+    data = betas * common + rng.normal(0.0008 + rng.normal(0, 0.0008, n_assets), vols, (300, n_assets))
+    return pd.DataFrame(data, index=pd.bdate_range('2023-01-02', periods=300))
+
+
+class TestLongOnlyOptimizersAreTrulyOptimal:
+    """Regression tests: long-only min-variance/tangency used to be the
+    unconstrained closed form with negative weights clipped to zero and the
+    rest renormalized. That is only an approximation - once a weight is
+    clipped, the remaining weights are no longer optimal for the reduced
+    problem. They're now solved as bounded optimizations."""
+
+    SEEDS = range(25)
+
+    def test_minimum_variance_is_never_worse_than_clipping_and_sometimes_better(self):
+        strictly_better = 0
+        for seed in self.SEEDS:
+            analyzer = PortfolioAnalyzer(_one_factor_returns(seed), RISK_FREE_RATE, long_only=True)
+            new_vol = analyzer.calculate_portfolio_metrics(analyzer.minimum_variance_portfolio())['volatility']
+            old_vol = analyzer.calculate_portfolio_metrics(_clipped_minimum_variance(analyzer))['volatility']
+            assert new_vol <= old_vol + 1e-6
+            strictly_better += new_vol < old_vol - 1e-6
+        assert strictly_better > 0
+
+    def test_tangency_is_never_worse_than_clipping_and_sometimes_better(self):
+        strictly_better = 0
+        checked = 0
+        for seed in self.SEEDS:
+            analyzer = PortfolioAnalyzer(_one_factor_returns(seed), RISK_FREE_RATE, long_only=True)
+            if not np.any(analyzer.mean_returns - RISK_FREE_RATE > 0):
+                continue  # no meaningful max-Sharpe portfolio (covered separately)
+            checked += 1
+            new_sharpe = analyzer.calculate_portfolio_metrics(analyzer.tangency_portfolio())['sharpe_ratio']
+            old_sharpe = analyzer.calculate_portfolio_metrics(_clipped_tangency(analyzer))['sharpe_ratio']
+            assert new_sharpe >= old_sharpe - 1e-6
+            strictly_better += new_sharpe > old_sharpe + 1e-6
+        assert checked > 0 and strictly_better > 0
+
+    def test_long_only_weights_are_valid(self):
+        analyzer = PortfolioAnalyzer(_one_factor_returns(3), RISK_FREE_RATE, long_only=True)
+        for weights in (analyzer.minimum_variance_portfolio(), analyzer.tangency_portfolio()):
+            assert weights.sum() == pytest.approx(1.0)
+            assert np.all(weights >= 0)
+
+    def test_tangency_beats_every_monte_carlo_sample_and_frontier_point(self):
+        analyzer = PortfolioAnalyzer(_one_factor_returns(3), RISK_FREE_RATE, long_only=True)
+        tangency_sharpe = analyzer.calculate_portfolio_metrics(analyzer.tangency_portfolio())['sharpe_ratio']
+
+        results, _ = analyzer.monte_carlo_simulation(5000)
+        assert tangency_sharpe >= results[2].max() - 1e-9
+
+        frontier = analyzer.efficient_frontier(num_points=30)
+        frontier_sharpes = (frontier['returns'] - RISK_FREE_RATE) / frontier['volatilities']
+        assert tangency_sharpe >= frontier_sharpes.max() - 1e-6
+
+    def test_minimum_variance_matches_the_frontier_anchor(self):
+        analyzer = PortfolioAnalyzer(_one_factor_returns(3), RISK_FREE_RATE, long_only=True)
+        min_vol = analyzer.calculate_portfolio_metrics(analyzer.minimum_variance_portfolio())['volatility']
+        frontier = analyzer.efficient_frontier(num_points=20)
+        assert frontier['volatilities'].min() == pytest.approx(min_vol, abs=1e-5)
+
+
+class TestTailRisk:
+    def _analyzer_from_daily(self, asset_a, asset_b=None):
+        asset_b = asset_b if asset_b is not None else [0.0] * len(asset_a)
+        index = pd.bdate_range('2023-01-02', periods=len(asset_a))
+        df = pd.DataFrame({'A': asset_a, 'B': asset_b}, index=index)
+        return PortfolioAnalyzer(df, RISK_FREE_RATE, long_only=True)
+
+    def test_max_drawdown_matches_hand_computation(self):
+        # Equity: 1.10 -> 0.55 -> 0.66. Worst peak-to-trough: 0.55/1.10 - 1 = -50%.
+        analyzer = self._analyzer_from_daily([0.10, -0.50, 0.20])
+        risk = analyzer.calculate_tail_risk(np.array([1.0, 0.0]))
+        assert risk['max_drawdown'] == pytest.approx(-0.5)
+
+    def test_max_drawdown_is_zero_when_equity_only_rises(self):
+        analyzer = self._analyzer_from_daily([0.01, 0.02, 0.005, 0.01])
+        risk = analyzer.calculate_tail_risk(np.array([1.0, 0.0]))
+        assert risk['max_drawdown'] == pytest.approx(0.0)
+
+    def test_var_is_the_return_quantile(self, analyzer_long_only):
+        weights = np.ones(4) / 4
+        risk = analyzer_long_only.calculate_tail_risk(weights, confidence=0.95)
+        expected = np.percentile(analyzer_long_only.portfolio_daily_returns(weights), 5)
+        assert risk['var'] == pytest.approx(expected)
+
+    def test_cvar_is_no_better_than_var_and_averages_the_tail(self, analyzer_long_only):
+        weights = np.ones(4) / 4
+        risk = analyzer_long_only.calculate_tail_risk(weights)
+        daily = analyzer_long_only.portfolio_daily_returns(weights)
+        assert risk['cvar'] <= risk['var']
+        assert risk['cvar'] == pytest.approx(daily[daily <= risk['var']].mean())
+
+    def test_higher_confidence_means_a_worse_var(self, analyzer_long_only):
+        weights = np.ones(4) / 4
+        var_95 = analyzer_long_only.calculate_tail_risk(weights, 0.95)['var']
+        var_99 = analyzer_long_only.calculate_tail_risk(weights, 0.99)['var']
+        assert var_99 <= var_95
+
+    def test_max_drawdown_is_bounded(self, analyzer_long_only):
+        risk = analyzer_long_only.calculate_tail_risk(np.ones(4) / 4)
+        assert -1.0 <= risk['max_drawdown'] <= 0.0
+
+
+class TestRiskContributions:
+    def test_contributions_sum_to_one(self, analyzer_long_only):
+        for weights in (np.ones(4) / 4, np.array([0.7, 0.1, 0.1, 0.1])):
+            assert analyzer_long_only.risk_contributions(weights).sum() == pytest.approx(1.0)
+
+    def test_contributions_satisfy_eulers_decomposition(self, analyzer_long_only):
+        """Each asset's contribution times portfolio volatility must equal
+        w_i * d(volatility)/d(w_i) - checked with finite differences,
+        independent of the closed-form used in the implementation."""
+        weights = np.array([0.4, 0.3, 0.2, 0.1])
+        contributions = analyzer_long_only.risk_contributions(weights)
+        volatility = lambda w: analyzer_long_only.calculate_portfolio_metrics(w)['volatility']
+        sigma = volatility(weights)
+        step = 1e-6
+        for i in range(4):
+            bumped = weights.copy()
+            bumped[i] += step
+            marginal = (volatility(bumped) - sigma) / step
+            assert contributions[i] * sigma == pytest.approx(weights[i] * marginal, rel=1e-3)
+
+    def test_single_asset_bears_all_the_risk(self, analyzer_long_only):
+        contributions = analyzer_long_only.risk_contributions(np.array([1.0, 0.0, 0.0, 0.0]))
+        assert contributions == pytest.approx([1.0, 0.0, 0.0, 0.0])
+
+    def test_riskier_asset_contributes_more_than_its_weight(self):
+        rng = np.random.default_rng(5)
+        index = pd.bdate_range('2023-01-02', periods=400)
+        df = pd.DataFrame({
+            'CALM': rng.normal(0.0005, 0.005, 400),
+            'WILD': rng.normal(0.0005, 0.03, 400),
+        }, index=index)
+        analyzer = PortfolioAnalyzer(df, RISK_FREE_RATE, long_only=True)
+        contributions = analyzer.risk_contributions(np.array([0.5, 0.5]))
+        assert contributions[1] > 0.9  # equal weights, but almost all the risk
+
+    def test_zero_variance_portfolio_returns_zeros(self, analyzer_long_only):
+        analyzer_long_only.cov_matrix = np.zeros((4, 4))
+        assert analyzer_long_only.risk_contributions(np.ones(4) / 4) == pytest.approx(np.zeros(4))

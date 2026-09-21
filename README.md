@@ -9,7 +9,7 @@ draw a nice efficient-frontier scatter plot.
 
 Each user registers an account and manages their own set of portfolios.
 Given a list of tickers, the app fetches historical price data, computes
-minimum-variance and tangency (max Sharpe) portfolios analytically, runs a
+minimum-variance and tangency (max Sharpe) portfolios, runs a
 Monte Carlo simulation to visualize the efficient frontier, and backtests
 each strategy against a naive equal-weight benchmark.
 
@@ -56,27 +56,32 @@ last six years gives:
 
 | Strategy | Annualized Return | Annualized Volatility | Sharpe Ratio | Max Drawdown |
 |---|---|---|---|---|
-| Tangency (max Sharpe) | 15.4% | 24.5% | 0.47 | -33.3% |
-| Minimum Variance | 16.5% | 20.7% | 0.61 | -34.5% |
-| Equal Weight | 17.5% | 22.9% | 0.59 | -33.9% |
+| Tangency (max Sharpe) | 16.2% | 25.0% | 0.49 | -32.3% |
+| Minimum Variance | 16.5% | 20.6% | 0.61 | -34.6% |
+| Equal Weight | 18.1% | 22.9% | 0.62 | -33.9% |
 
-For this particular basket, the naive equal-weight benchmark actually held
-its own against — and briefly beat — the "optimized" portfolios. That's not
-a bug; it's the textbook estimation-error problem with mean-variance
-optimization (Michaud's "error maximization"): with only a handful of assets
-and a noisy covariance/return estimate, the optimizer chases sampling noise
-in the lookback window that doesn't persist out-of-sample. Minimum variance
-comes out ahead on a risk-adjusted basis here because it only depends on the
-covariance matrix (better estimated than expected returns), not on the
-noisier return forecast that tangency weighting requires. Surfacing this
+For this particular basket, the naive equal-weight benchmark matches or beats
+both "optimized" portfolios on Sharpe ratio. That's not a bug; it's the
+textbook estimation-error problem with mean-variance optimization (Michaud's
+"error maximization"): with only a handful of assets and a noisy
+covariance/return estimate, the optimizer chases sampling noise in the
+lookback window that doesn't persist out-of-sample. Minimum variance
+essentially ties equal-weight on risk-adjusted return (0.61 vs 0.62) while
+running noticeably less volatility, because it only depends on the covariance
+matrix (better estimated than expected returns); tangency, which also needs
+the noisier return forecast, lags both. Each rebalance applies its target
+weights as a constant mix (implicitly rebalanced daily, not allowed to drift),
+and long-only weights come from a properly constrained optimization, not
+clipped closed-form solutions. Surfacing this
 kind of result — rather than only ever showing a favorable backtest — is the
 whole point of validating with real out-of-sample testing.
 
 ## Features
 
 - **Portfolio optimization**: minimum-variance and tangency (max Sharpe)
-  portfolios, solved analytically via Ledoit-Wolf shrinkage covariance
-  estimation; long-only or long-short constraints
+  portfolios using Ledoit-Wolf shrinkage covariance estimation; long-short
+  via closed form, long-only via a bounded optimization (SLSQP) - clipping a
+  closed-form solution's negative weights isn't the true long-only optimum
 - **Efficient frontier visualization**: a Monte Carlo cloud (vectorized
   NumPy, not a Python loop) overlaid with the *exact* frontier curve, solved
   via constrained optimization (`scipy.optimize`, SLSQP) rather than sampled
@@ -90,6 +95,9 @@ whole point of validating with real out-of-sample testing.
   latest one
 - **Risk-adjusted performance metrics**: Sharpe ratio, Treynor ratio, beta,
   and Jensen's alpha against a market benchmark (SPY)
+- **Portfolio-level risk analysis**: historical 1-day VaR and CVaR (95%), max
+  drawdown, and each asset's share of total portfolio variance versus its
+  weight - e.g. a 42% position that is really 60% of the risk
 - **Individual stock analysis**: valuation ratios, profitability metrics,
   technical indicators (RSI, MACD, Bollinger Bands), dividend analysis, and
   a simplified DCF valuation
@@ -122,7 +130,7 @@ portfolio_optimizer/
 ├── portfolio_service.py  # Orchestrates fetch -> analyze -> store
 └── stock_analysis.py     # Single-stock fundamental/technical analysis
 migrations/               # Alembic schema migrations (Flask-Migrate)
-tests/                    # pytest suite (152 tests)
+tests/                    # pytest suite (169 tests)
 ```
 
 ## Tech stack
@@ -168,7 +176,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-152 tests cover the optimization math (including regression tests for a
+169 tests cover the optimization math (including regression tests for a
 handful of real bugs found along the way — a tangency-weight sign flip, a
 risk-free-rate unit mismatch, a `None` dividend yield crash), the exact
 efficient frontier (bounds, monotonicity, dominated-region exclusion), the

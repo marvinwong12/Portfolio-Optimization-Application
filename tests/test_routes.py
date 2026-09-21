@@ -261,6 +261,18 @@ class TestAccessRoute:
         assert b'Tech' in response.data
         assert b'js-loading-trigger' in response.data  # backtest link wired up
 
+    def test_access_shows_portfolio_level_risk_analysis(self, app, logged_in_client, mocked_yfinance):
+        client, user_id = logged_in_client
+        portfolio_id = _create_portfolio(app, user_id, name='Tech', stocks='AAA,BBB', long_only=True)
+
+        response = client.get(f'/access/{portfolio_id}')
+
+        assert b'Risk Analysis' in response.data
+        assert b'1-Day VaR (95%)' in response.data
+        assert b'1-Day CVaR (95%)' in response.data
+        assert b'Max Drawdown' in response.data
+        assert b'Share of Risk' in response.data
+
     def test_access_persists_tangency_weights_to_db(self, app, logged_in_client, mocked_yfinance):
         client, user_id = logged_in_client
         portfolio_id = _create_portfolio(app, user_id, name='Tech', stocks='AAA,BBB', long_only=True)

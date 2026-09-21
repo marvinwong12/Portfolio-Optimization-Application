@@ -103,7 +103,8 @@ def run_backtest(returns, risk_free_rate, strategy='tangency', long_only=True,
 
     At each rebalance date, weights are estimated from the `lookback_days`
     of returns immediately preceding it (never including the holding period
-    itself), then held fixed while realized returns accumulate over the
+    itself), then applied as constant target weights (implicitly rebalanced
+    daily, not allowed to drift) while realized returns accumulate over the
     next `rebalance_days`. This repeats until the data is exhausted.
 
     Args:
@@ -148,8 +149,10 @@ def run_backtest(returns, risk_free_rate, strategy='tangency', long_only=True,
         period_end = min(idx + rebalance_days, n_total)
         period_returns = returns.iloc[idx:period_end]
 
-        # Fixed weights held (buy-and-hold, no intra-period rebalancing)
-        # across the holding period.
+        # The same target weights are applied to every day's returns in the
+        # holding period, i.e. a constant-mix portfolio that is implicitly
+        # rebalanced back to target daily - NOT buy-and-hold, where weights
+        # would drift with relative performance between rebalance dates.
         period_portfolio_returns = period_returns.values @ weights
         daily_returns.iloc[idx - lookback_days:period_end - lookback_days] = period_portfolio_returns
 

@@ -1,6 +1,7 @@
 """Portfolio analysis and optimization math. No Flask/DB/network dependencies,
 so this module can be unit-tested in isolation with synthetic returns data."""
 import numpy as np
+import pandas as pd
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 
@@ -18,6 +19,8 @@ class PortfolioAnalyzer:
         tangency_portfolio: Calculate tangency portfolio (max Sharpe ratio) weights
         monte_carlo_simulation: Run Monte Carlo simulation for portfolio optimization
         efficient_frontier: Solve the exact efficient frontier via constrained optimization
+        calculate_tail_risk: Historical VaR, CVaR and max drawdown for a weight vector
+        risk_contributions: Each asset's share of total portfolio variance
     """
 
     def __init__(self, returns_data, risk_free_rate, long_only=True):
@@ -123,79 +126,161 @@ class PortfolioAnalyzer:
         expected_return = self.risk_free_rate + beta * (market_return - self.risk_free_rate)
         return portfolio_return - expected_return
 
+    def _solve_long_only(self, objective):
+        """
+        Minimize `objective(weights)` subject to weights summing to 1 and
+        0 <= w <= 1, via SLSQP. Returns None if the solver fails to
+        converge so callers can fall back explicitly.
+
+        This is the true long-only optimum. The closed-form (unconstrained)
+        solution followed by clipping negatives and renormalizing is only
+        an approximation: once any weight is clipped, the remaining
+        weights are no longer optimal for the reduced problem.
+        """
+        n = len(self.mean_returns)
+        result = minimize(
+            objective, np.ones(n) / n, method='SLSQP',
+            bounds=tuple((0.0, 1.0) for _ in range(n)),
+            constraints=({'type': 'eq', 'fun': lambda w: np.sum(w) - 1},),
+            options={'maxiter': 500, 'ftol': 1e-12},
+        )
+        if not result.success:
+            return None
+        weights = np.clip(result.x, 0.0, None)
+        return weights / weights.sum()
+
+    def portfolio_daily_returns(self, weights):
+        """
+        Daily returns of a constant-mix portfolio over the analyzer's window
+        (the same weights applied to every day, i.e. implicitly rebalanced
+        daily).
+
+        Returns:
+            pd.Series: Indexed like self.returns
+        """
+        return pd.Series(self.returns.values @ np.asarray(weights), index=self.returns.index)
+
+    def calculate_tail_risk(self, weights, confidence=0.95):
+        """
+        Historical tail-risk metrics for a portfolio over the analyzer's
+        window. Sign convention matches the single-stock page: losses are
+        negative numbers (e.g. a VaR of -0.021 is a 2.1% one-day loss).
+
+        Args:
+            weights (np.array): Portfolio weights
+            confidence (float): VaR/CVaR confidence level
+
+        Returns:
+            dict: {
+                'var': the (1-confidence) quantile of daily returns - the
+                    daily loss exceeded on only (1-confidence) of days,
+                'cvar': expected shortfall - the average daily return on
+                    those worst days (always <= var),
+                'max_drawdown': worst peak-to-trough decline of the
+                    cumulative-return curve,
+                'confidence': confidence,
+            }
+        """
+        daily = self.portfolio_daily_returns(weights)
+        cutoff = float(np.percentile(daily, (1 - confidence) * 100))
+        tail = daily[daily <= cutoff]
+
+        equity_curve = (1 + daily).cumprod()
+        drawdown = equity_curve / equity_curve.cummax() - 1
+
+        return {
+            'var': cutoff,
+            'cvar': float(tail.mean()),
+            'max_drawdown': float(drawdown.min()),
+            'confidence': confidence,
+        }
+
+    def risk_contributions(self, weights):
+        """
+        Each asset's fractional contribution to total portfolio variance:
+        RC_i = w_i * (Sigma w)_i / (w' Sigma w). Contributions sum to 1, and
+        differ from weights whenever assets have different volatilities or
+        correlations - a 25% weight in a volatile, highly correlated stock
+        can be far more than 25% of the risk. (In a long-short portfolio an
+        asset that hedges the rest can have a negative contribution.)
+
+        Args:
+            weights (np.array): Portfolio weights
+
+        Returns:
+            np.array: Fractional risk contributions, same order as weights
+                (all zeros if the portfolio has zero variance)
+        """
+        weights = np.asarray(weights, dtype=float)
+        portfolio_variance = float(weights @ self.cov_matrix @ weights)
+        if portfolio_variance <= 0:
+            return np.zeros(len(weights))
+        return weights * (self.cov_matrix @ weights) / portfolio_variance
+
     def minimum_variance_portfolio(self):
         """
-        Calculate weights for minimum variance portfolio.
+        Calculate weights for the minimum variance portfolio.
+
+        Long-only: solved as a bounded optimization (see _solve_long_only).
+        Long-short: closed-form solution, w = S^-1 1 / (1' S^-1 1).
 
         Returns:
             np.array: Portfolio weights
         """
         n = len(self.mean_returns)
+
+        if self.long_only:
+            cov_matrix = self.cov_matrix
+            weights = self._solve_long_only(lambda w: float(w @ cov_matrix @ w))
+            # Fallback to equal weights if the solver fails to converge
+            return weights if weights is not None else np.ones(n) / n
 
         ones = np.ones(n)
         try:
             # Solve cov_matrix @ x = ones directly instead of computing the
             # full inverse - faster and more numerically stable.
             raw_weights = np.linalg.solve(self.cov_matrix, ones)
-
-            if self.long_only:
-                weights = raw_weights / np.dot(ones, raw_weights)
-
-                # Ensure no negative weights (long-only constraint)
-                weights = np.maximum(weights, 0)
-                weight_sum = weights.sum()
-                if weight_sum == 0:
-                    # Every weight clipped to zero - fall back to equal
-                    # weights rather than dividing by zero into NaNs.
-                    return np.ones(n) / n
-                weights /= weight_sum
-
-                return weights
-            else:
-                # Long-short portfolio (no constraints)
-                weights = raw_weights / np.dot(ones, raw_weights)
-                return weights
+            return raw_weights / np.dot(ones, raw_weights)
         except np.linalg.LinAlgError:
             # Fallback to equal weights if matrix is singular
             return np.ones(n) / n
 
     def tangency_portfolio(self):
         """
-        Calculate weights for tangency portfolio (maximum Sharpe ratio).
+        Calculate weights for the tangency portfolio (maximum Sharpe ratio).
+
+        Long-only: solved as a bounded optimization that maximizes the
+        Sharpe ratio directly (see _solve_long_only). If no asset's
+        expected return exceeds the risk-free rate there is no meaningful
+        max-Sharpe portfolio, so this falls back to equal weights.
+        Long-short: closed-form solution, normalized by the absolute
+        weight sum.
 
         Returns:
             np.array: Portfolio weights
         """
         n = len(self.mean_returns)
-        excess_returns = self.mean_returns - self.risk_free_rate
+        excess_returns = (self.mean_returns - self.risk_free_rate).values
+
+        if self.long_only:
+            if np.all(excess_returns <= 0):
+                return np.ones(n) / n
+
+            cov_matrix = self.cov_matrix
+
+            def negative_sharpe(w):
+                volatility = np.sqrt(max(float(w @ cov_matrix @ w), 1e-16))
+                return -float(w @ excess_returns) / volatility
+
+            weights = self._solve_long_only(negative_sharpe)
+            return weights if weights is not None else np.ones(n) / n
 
         try:
             # Solve cov_matrix @ x = excess_returns directly instead of
             # computing the full inverse - faster and more numerically stable.
             weights = np.linalg.solve(self.cov_matrix, excess_returns)
-
-            if self.long_only:
-                # Clip negative weights before normalizing, since normalizing
-                # by a possibly-negative raw sum first can flip every sign
-                # and select the wrong assets.
-                weights = np.maximum(weights, 0)
-                weight_sum = weights.sum()
-                if weight_sum == 0:
-                    # No asset has a positive tangency weight under the
-                    # long-only constraint (e.g. every asset's expected
-                    # excess return over the risk-free rate is negative) -
-                    # fall back to equal weights rather than dividing by zero.
-                    return np.ones(n) / n
-                weights /= weight_sum
-
-                return weights
-            else:
-                # Long-short portfolio (no constraints)
-                # Normalize weights but allow negative values
-                weights /= np.sum(np.abs(weights))  # Use absolute sum for normalization
-                return weights
+            return weights / np.sum(np.abs(weights))
         except np.linalg.LinAlgError:
-            # Fallback to equal weights
             return np.ones(n) / n
 
     def monte_carlo_simulation(self, num_portfolios=10000):

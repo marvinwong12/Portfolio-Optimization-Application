@@ -154,6 +154,16 @@ class PortfolioApp:
             'description': portfolio.get('description', '')
         }
 
+        # Tail risk and where the risk actually comes from
+        tail_risk = self.analyzer.calculate_tail_risk(portfolio['weights'])
+        performance['var_95'] = tail_risk['var']
+        performance['cvar_95'] = tail_risk['cvar']
+        performance['max_drawdown'] = tail_risk['max_drawdown']
+        performance['risk_contributions'] = dict(zip(
+            self.returns.columns,
+            self.analyzer.risk_contributions(portfolio['weights'])
+        ))
+
         # Add risk-adjusted metrics if market data is available
         if market_returns is not None:
             performance['beta'] = self.analyzer.calculate_beta(portfolio['weights'], market_returns)
