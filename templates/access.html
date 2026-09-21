@@ -155,6 +155,12 @@
         transform: scale(1.02);
     }
 
+    .chart-narrow {
+        max-width: 760px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
     .charts-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -553,21 +559,20 @@
     <div class="portfolio-section">
         <h2><span class="icon"></span>Visual Analytics</h2>
         
-        <div class="charts-grid">
-            <div class="chart-container">
-                <h3><span class="icon"></span>Efficient Frontier</h3>
-                <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
-            </div>
+        <!-- Wide charts get the full card width: at half width their axis labels are unreadable. -->
+        <div class="chart-container">
+            <h3><span class="icon"></span>Efficient Frontier</h3>
+            <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
+        </div>
 
-            <div class="chart-container">
-                <h3><span class="icon"></span>Correlation Matrix</h3>
-                <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
-            </div>
+        <div class="chart-container">
+            <h3><span class="icon"></span>Cumulative Returns</h3>
+            <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
+        </div>
 
-            <div class="chart-container">
-                <h3><span class="icon"></span>Cumulative Returns</h3>
-                <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
-            </div>
+        <div class="chart-container chart-narrow">
+            <h3><span class="icon"></span>Correlation Matrix</h3>
+            <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
         </div>
 
         <div class="chart-container">

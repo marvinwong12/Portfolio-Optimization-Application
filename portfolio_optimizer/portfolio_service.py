@@ -359,8 +359,18 @@ class PortfolioApp:
         # portfolio rather than the Monte Carlo cloud's best sample, since
         # that's the actual max-Sharpe point, not an approximation of it.
         tangency_metrics = self.analyzer.calculate_portfolio_metrics(tangency_weights)
+        min_var_metrics = self.analyzer.calculate_portfolio_metrics(min_var_weights)
+        asset_stats = {
+            symbol: {
+                'volatility': float(np.sqrt(self.analyzer.cov_matrix[i, i])),
+                'return': float(self.analyzer.mean_returns.iloc[i]),
+            }
+            for i, symbol in enumerate(self.returns.columns)
+        }
         image_data['efficient_frontier'] = PortfolioVisualizer.plot_efficient_frontier(
-            mc_results[0], mc_results[1], mc_results[2], tangency_metrics, frontier=frontier
+            mc_results[0], mc_results[1], mc_results[2], tangency_metrics, frontier=frontier,
+            min_variance_portfolio=min_var_metrics, assets=asset_stats,
+            risk_free_rate=self.risk_free_rate,
         )
 
         # Portfolio weights

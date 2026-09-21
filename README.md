@@ -15,7 +15,8 @@ each strategy against a naive equal-weight benchmark.
 
 ## Screenshots
 
-**Efficient frontier** (Monte Carlo simulation, optimal portfolio marked):
+**Efficient frontier**: a cloud of random portfolios, the exact frontier, each asset, the
+tangency and minimum-variance portfolios, and the capital market line:
 
 ![Efficient frontier](docs/screenshots/efficient_frontier.png)
 
@@ -33,7 +34,8 @@ each strategy against a naive equal-weight benchmark.
   <img src="docs/screenshots/cumulative_returns.png" width="49%" alt="Cumulative returns">
 </p>
 
-**Walk-forward backtest**, out-of-sample, rebalanced quarterly:
+**Walk-forward backtest**, out-of-sample, rebalanced quarterly, net of 10 bps transaction costs,
+against SPY, with a drawdown panel:
 
 ![Backtest comparison](docs/screenshots/backtest_comparison.png)
 
@@ -108,6 +110,12 @@ favorable point estimate - is the whole point of validating out-of-sample.
   latest one
 - **Risk-adjusted performance metrics**: Sharpe ratio, Treynor ratio, beta,
   and Jensen's alpha against a market benchmark (SPY)
+- **Charts built to be read**: a dark theme that matches the UI, a
+  colorblind-safe palette with each asset and strategy keeping one color
+  throughout, direct labels instead of legends, a drawdown panel under the
+  backtest, and the individual assets plotted against the frontier - all
+  rendered on thread-safe matplotlib `Figure` objects, since the deployed
+  server is threaded
 - **Portfolio-level risk analysis**: historical 1-day VaR and CVaR (95%), max
   drawdown, and each asset's share of total portfolio variance versus its
   weight - e.g. a 42% position that is really 60% of the risk
@@ -143,7 +151,7 @@ portfolio_optimizer/
 ├── portfolio_service.py  # Orchestrates fetch -> analyze -> store
 └── stock_analysis.py     # Single-stock fundamental/technical analysis
 migrations/               # Alembic schema migrations (Flask-Migrate)
-tests/                    # pytest suite (220 tests)
+tests/                    # pytest suite (247 tests)
 ```
 
 ## Tech stack
@@ -189,14 +197,15 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-220 tests cover the optimization math (including regression tests for a
+247 tests cover the optimization math (including regression tests for a
 handful of real bugs found along the way — a tangency-weight sign flip, a
 risk-free-rate unit mismatch, a `None` dividend yield crash), the exact
 efficient frontier (bounds, monotonicity, dominated-region exclusion), the
-backtest engine's no-lookahead guarantee, weight-history snapshot
-persistence, caching, per-user access control, and CSRF protection
-(verified end-to-end with it explicitly turned back on), all with
-`yfinance` mocked so the suite runs fully offline.
+backtest engine's no-lookahead guarantee, transaction-cost accounting and
+bootstrap coverage, chart rendering (including concurrent renders),
+weight-history snapshot persistence, caching, per-user access control, and
+CSRF protection (verified end-to-end with it explicitly turned back on), all
+with `yfinance` mocked so the suite runs fully offline.
 
 ## Deploying to Render (free tier)
 
