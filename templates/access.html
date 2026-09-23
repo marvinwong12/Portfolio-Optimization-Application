@@ -2,753 +2,174 @@
 
 {% block head %}
 <title>Portfolio Analysis - {{ portfolio.name }}</title>
-<style>
-    /* ===== BASE STYLING ===== */
-    .content {
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 2rem;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        color: var(--text-primary);
-    }
-
-    h1 {
-        text-align: center;
-        font-size: 2.5rem;
-        margin-bottom: 1.5rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    h2 {
-        color: var(--text-primary);
-        font-size: 1.8rem;
-        margin-bottom: 1.5rem;
-        font-weight: 500;
-        padding-bottom: 0.75rem;
-        border-bottom: 2px solid var(--accent);
-    }
-
-    h3 {
-        color: var(--text-primary);
-        font-size: 1.4rem;
-        margin-bottom: 1rem;
-        font-weight: 500;
-    }
-
-    h4 {
-        color: var(--text-secondary);
-        font-size: 1.1rem;
-        margin-bottom: 0.75rem;
-        font-weight: 500;
-    }
-
-    /* ===== PORTFOLIO SECTIONS ===== */
-    .portfolio-section {
-        margin: 2rem 0;
-        padding: 2rem;
-        background-color: var(--bg-card);
-        border-radius: 0.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-
-
-
-    /* ===== DASHBOARD ===== */
-    .dash-actions { text-align: center; margin-bottom: 1.5rem; }
-    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-    .kpi-card { background-color: var(--bg-card); border-radius: 0.5rem; padding: 1.1rem 1.25rem; border-left: 3px solid var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    .kpi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
-    .kpi-value { font-size: 1.8rem; font-weight: 600; margin: 0.2rem 0; }
-    .kpi-sub { font-size: 0.85rem; color: var(--text-secondary); }
-    .tab-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.12); margin-bottom: 1.5rem; }
-    .tab-btn { background: none; border: none; color: var(--text-secondary); padding: 0.75rem 1.25rem; font: inherit; font-size: 1rem; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
-    .tab-btn:hover { color: var(--text-primary); }
-    .tab-btn.active { color: var(--text-primary); border-bottom-color: var(--accent); }
-    .tab-panel[hidden] { display: none; }
-    .tab-panel > .portfolio-section:first-child, .tab-panel > .portfolio-details:first-child { margin-top: 0; }
-    @media print { .tab-panel[hidden] { display: block; } .tab-bar { display: none; } }
-
-    /* ===== TABLES ===== */
-    .portfolio-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 1.5rem 0;
-        background-color: var(--bg-card);
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .portfolio-table th {
-        background-color: rgba(74, 134, 232, 0.2);
-        color: var(--text-primary);
-        padding: 1rem;
-        text-align: left;
-        font-weight: 600;
-        border-bottom: 2px solid var(--accent);
-    }
-
-    .portfolio-table td {
-        padding: 1rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .portfolio-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .portfolio-table tr:hover td {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    /* ===== WEIGHTS TABLES ===== */
-    .weights-table-container {
-        margin: 1.5rem 0;
-        padding: 1.5rem;
-        background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 0.5rem;
-    }
-
-    .weights-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 1rem 0;
-        background-color: var(--bg-card);
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .weights-table th {
-        background-color: rgba(74, 134, 232, 0.25);
-        color: var(--text-primary);
-        padding: 1rem;
-        text-align: left;
-        font-weight: 600;
-    }
-
-    .weights-table td {
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .weights-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .total-row {
-        background-color: rgba(74, 134, 232, 0.15);
-        font-weight: 600;
-    }
-
-    .total-row td {
-        border-top: 2px solid var(--accent);
-    }
-
-    /* ===== CHARTS CONTAINER ===== */
-    .chart-container {
-        margin: 2rem 0;
-        text-align: center;
-        padding: 1.5rem;
-        background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 0.5rem;
-    }
-
-    .chart-container img {
-        max-width: 100%;
-        height: auto;
-        border-radius: 0.5rem;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-        transition: transform 0.3s ease;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .chart-container img:hover {
-        transform: scale(1.02);
-    }
-
-    .chart-narrow {
-        max-width: 760px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-
-    .charts-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-        gap: 1.5rem;
-        margin: 1.5rem 0;
-    }
-
-    /* ===== METRIC CARDS ===== */
-    .metric-card {
-        background-color: rgba(74, 134, 232, 0.15);
-        color: var(--text-primary);
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-        border-left: 4px solid var(--accent);
-    }
-
-    .metric-card strong {
-        display: block;
-        font-size: 0.9rem;
-        margin-bottom: 0.5rem;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .metrics-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1rem;
-        margin: 1.5rem 0;
-    }
-
-    /* ===== PORTFOLIO DETAILS ===== */
-    .portfolio-details {
-        background-color: rgba(74, 134, 232, 0.2);
-        color: var(--text-primary);
-        padding: 2rem;
-        border-radius: 0.5rem;
-        margin-bottom: 2rem;
-        border-left: 4px solid var(--accent);
-    }
-
-    .portfolio-details p {
-        margin: 0.75rem 0;
-        font-size: 1.1rem;
-    }
-
-    .portfolio-details strong {
-        font-weight: 600;
-        margin-right: 0.5rem;
-        color: var(--accent);
-    }
-
-    /* ===== RISK ANALYSIS ===== */
-    .risk-note {
-        color: var(--text-secondary);
-        font-size: 0.95rem;
-        margin: 0.5rem 0 1.5rem;
-    }
-
-    .risk-bar-track {
-        display: inline-block;
-        width: 140px;
-        height: 10px;
-        margin-right: 0.75rem;
-        vertical-align: middle;
-        background-color: rgba(255, 255, 255, 0.1);
-        border-radius: 5px;
-        overflow: hidden;
-    }
-
-    .risk-bar-fill {
-        display: block;
-        height: 100%;
-        background-color: var(--accent);
-    }
-
-    /* ===== BADGES AND TAGS ===== */
-    .badge {
-        display: inline-block;
-        padding: 0.35rem 0.75rem;
-        border-radius: 1rem;
-        font-size: 0.85rem;
-        font-weight: 500;
-    }
-
-    .badge-positive {
-        background-color: rgba(76, 175, 80, 0.2);
-        color: #4CAF50;
-    }
-
-    .badge-negative {
-        background-color: rgba(244, 67, 54, 0.2);
-        color: #F44336;
-    }
-
-    .badge-neutral {
-        background-color: rgba(149, 165, 166, 0.2);
-        color: #95A5A6;
-    }
-
-    /* ===== RESPONSIVE DESIGN ===== */
-    @media (max-width: 768px) {
-        .content {
-            padding: 1rem;
-        }
-
-        .portfolio-section {
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-        }
-
-        .charts-grid {
-            grid-template-columns: 1fr;
-            gap: 1rem;
-        }
-
-        .portfolio-table {
-            font-size: 0.9rem;
-        }
-
-        .portfolio-table th,
-        .portfolio-table td {
-            padding: 0.75rem;
-        }
-
-        h1 {
-            font-size: 2rem;
-        }
-
-        h2 {
-            font-size: 1.5rem;
-        }
-    }
-
-    /* ===== ANIMATIONS ===== */
-
-    .portfolio-section {
-    }
-
-
-    /* ===== SCROLLBAR STYLING ===== */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: var(--accent);
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--accent-hover);
-    }
-
-    /* ===== PRINT STYLES ===== */
-    @media print {
-        .content {
-            background: white !important;
-            color: black !important;
-        }
-
-        .portfolio-section {
-            box-shadow: none !important;
-            border: 1px solid #ccc !important;
-        }
-
-        .chart-container img {
-            box-shadow: none !important;
-            border: 1px solid #ccc !important;
-        }
-    }
-
-    /* ===== ICON STYLING ===== */
-    .icon {
-        margin-right: 0.5rem;
-        color: var(--accent);
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
 {% endblock %}
 
 {% block body %}
+{% set by_sharpe = comparison.items()|sort(attribute='1.sharpe_ratio', reverse=true)|list %}
+{% set by_return = comparison.items()|sort(attribute='1.return', reverse=true)|list %}
+{% set by_vol = comparison.items()|sort(attribute='1.volatility')|list %}
+{% set by_dd = comparison.items()|sort(attribute='1.max_drawdown', reverse=true)|list %}
 
-<div class="content">
-    <h1><span class="icon"></span>Portfolio Analysis: {{ portfolio.name }}</h1>
-
-    <div class="dash-actions">
-        <a href="/" class="back-link">← Back to All Portfolios</a>
-        &nbsp;|&nbsp;
-        <a href="/backtest/{{ portfolio.id }}" class="back-link js-loading-trigger"
-           data-loading-message="Running walk-forward backtest…">Walk-Forward Backtest →</a>
-        &nbsp;|&nbsp;
-        <a href="/history/{{ portfolio.id }}" class="back-link">Weight History →</a>
+<div class="term">
+    <div class="term-head">
+        <h1>{{ portfolio.name }}</h1>
+        <span class="sub">{{ symbols|join(' · ') }}{% if portfolio.description %} — {{ portfolio.description }}{% endif %}</span>
+        <div class="links">
+            <a href="/">← Portfolios</a>
+            <a href="/backtest/{{ portfolio.id }}" class="js-loading-trigger"
+               data-loading-message="Running walk-forward backtest…">Walk-Forward Backtest →</a>
+            <a href="/history/{{ portfolio.id }}">Weight History →</a>
+            <button type="button" id="print-report">Print</button>
+        </div>
     </div>
 
-    {% set by_sharpe = comparison.items()|sort(attribute='1.sharpe_ratio', reverse=true)|list %}
-    {% set by_return = comparison.items()|sort(attribute='1.return', reverse=true)|list %}
-    {% set by_vol = comparison.items()|sort(attribute='1.volatility')|list %}
-    {% set by_dd = comparison.items()|sort(attribute='1.max_drawdown', reverse=true)|list %}
-    <div class="kpi-strip">
-        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div>
-            <div class="kpi-value">{{ "%.2f"|format(by_sharpe[0][1].sharpe_ratio) }}</div>
-            <div class="kpi-sub">{{ by_sharpe[0][0] }}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Highest Return</div>
-            <div class="kpi-value">{{ "%.1f"|format(by_return[0][1].return * 100) }}%</div>
-            <div class="kpi-sub">{{ by_return[0][0] }}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Lowest Volatility</div>
-            <div class="kpi-value">{{ "%.1f"|format(by_vol[0][1].volatility * 100) }}%</div>
-            <div class="kpi-sub">{{ by_vol[0][0] }}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Shallowest Max Drawdown</div>
-            <div class="kpi-value">{{ "%.1f"|format(by_dd[0][1].max_drawdown * 100) }}%</div>
-            <div class="kpi-sub">{{ by_dd[0][0] }}</div></div>
+    <div class="kpis">
+        <div class="kpi"><div class="l">Best Sharpe</div><div class="v">{{ "%.2f"|format(by_sharpe[0][1].sharpe_ratio) }}</div><div class="s">{{ by_sharpe[0][0] }}</div></div>
+        <div class="kpi"><div class="l">Highest Return</div><div class="v">{{ "%.1f"|format(by_return[0][1].return * 100) }}%</div><div class="s">{{ by_return[0][0] }}</div></div>
+        <div class="kpi"><div class="l">Lowest Volatility</div><div class="v">{{ "%.1f"|format(by_vol[0][1].volatility * 100) }}%</div><div class="s">{{ by_vol[0][0] }}</div></div>
+        <div class="kpi"><div class="l">Shallowest Max Drawdown</div><div class="v">{{ "%.1f"|format(by_dd[0][1].max_drawdown * 100) }}%</div><div class="s">{{ by_dd[0][0] }}</div></div>
+        <div class="kpi"><div class="l">Risk-Free Rate</div><div class="v">{% if analysis_details.risk_free_rate is not none %}{{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}%{% else %}N/A{% endif %}</div><div class="s">annual</div></div>
+        <div class="kpi"><div class="l">Window</div><div class="v">{{ analysis_details.trading_days or 'N/A' }}<span style="font-size:0.75rem"> days</span></div>
+            <div class="s">{% if analysis_details.start_date and analysis_details.end_date %}{{ analysis_details.start_date }} → {{ analysis_details.end_date }}{% else %}N/A{% endif %}</div></div>
     </div>
 
-    <div class="tab-bar" role="tablist">
-        <button class="tab-btn active" role="tab" data-tab="overview">Overview</button>
-        <button class="tab-btn" role="tab" data-tab="risk">Risk</button>
-        <button class="tab-btn" role="tab" data-tab="allocation">Allocation</button>
-        {% if image_data %}<button class="tab-btn" role="tab" data-tab="charts">Charts</button>{% endif %}
-    </div>
-
-    <div class="tab-panel" data-panel="overview">
-
-    <!-- Portfolio Details -->
-    <div class="portfolio-details">
-        <h2><span class="icon"></span>Portfolio Overview</h2>
-        <p><strong>Stocks:</strong> {{ symbols|join(', ') }}</p>
-        {% if portfolio.description %}
-        <p><strong>Description:</strong> {{ portfolio.description }}</p>
-        {% endif %}
-        <p><strong>Analysis Period:</strong> Last 3 years</p>
-        <p><strong>Number of Assets:</strong> {{ symbols|length }}</p>
-    </div>
-
-    <!-- Portfolio Comparison -->
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Strategy Comparison</h2>
-        <div style="overflow-x: auto;">
-            <table class="portfolio-table">
-                <thead>
-                    <tr>
-                        <th>Strategy</th>
-                        <th>Return</th>
-                        <th>Volatility</th>
-                        <th>Sharpe Ratio</th>
-                        {% if market_available %}
-                        <th>Beta</th>
-                        <th>Treynor Ratio</th>
-                        <th>Jensen's Alpha</th>
-                        {% endif %}
-                    </tr>
-                </thead>
-                <tbody>
+    <div class="grid">
+        <!-- Row 1: strategies, tail risk, frontier -->
+        <section class="win c6">
+            <h2>Strategy Comparison</h2>
+            <div class="body">
+                <table class="t">
+                    <thead><tr>
+                        <th>Strategy</th><th>Return</th><th>Vol</th><th>Sharpe</th>
+                        {% if market_available %}<th>Beta</th><th>Treynor</th><th>Jensen α</th>{% endif %}
+                    </tr></thead>
+                    <tbody>
                     {% for name, data in comparison.items() %}
                     <tr>
                         <td><strong>{{ name }}</strong></td>
-                        <td>
-                            <span class="badge {% if data.return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
-                                {{ "%.2f"|format(data.return * 100) }}%
-                            </span>
-                        </td>
+                        <td class="{{ 'pos' if data.return > 0 else 'neg' }}">{{ "%.2f"|format(data.return * 100) }}%</td>
                         <td>{{ "%.2f"|format(data.volatility * 100) }}%</td>
-                        <td>
-                            <span class="badge {% if data.sharpe_ratio > 1 %}badge-positive{% elif data.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
-                                {{ "%.2f"|format(data.sharpe_ratio) }}
-                            </span>
-                        </td>
+                        <td class="{% if data.sharpe_ratio > 1 %}pos{% elif data.sharpe_ratio > 0 %}neu{% else %}neg{% endif %}">{{ "%.2f"|format(data.sharpe_ratio) }}</td>
                         {% if market_available %}
                         <td>{{ "%.2f"|format(data.beta) if data.beta is not none else 'N/A' }}</td>
                         <td>{{ "%.2f"|format(data.treynor_ratio) if data.treynor_ratio is not none else 'N/A' }}</td>
-                        <td>
-                            {% if data.jensen_alpha is not none %}
-                                <span class="badge {% if data.jensen_alpha > 0 %}badge-positive{% else %}badge-negative{% endif %}">
-                                    {{ "%.2f"|format(data.jensen_alpha * 100) }}%
-                                </span>
-                            {% else %}
-                                N/A
-                            {% endif %}
-                        </td>
+                        <td class="{{ 'pos' if data.jensen_alpha is not none and data.jensen_alpha > 0 else 'neg' }}">{{ "%.2f"|format(data.jensen_alpha * 100) ~ '%' if data.jensen_alpha is not none else 'N/A' }}</td>
                         {% endif %}
                     </tr>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
-    <!-- Analysis Details -->
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Analysis Parameters</h2>
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <strong>Risk-Free Rate</strong>
-                <span>
-                    {% if analysis_details.risk_free_rate is not none %}
-                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (annual)
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Analysis Period</strong>
-                <span>
-                    {% if analysis_details.start_date and analysis_details.end_date %}
-                        {{ analysis_details.start_date }} to {{ analysis_details.end_date }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Trading Days</strong>
-                <span>
-                    {% if analysis_details.trading_days %}
-                        {{ analysis_details.trading_days }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Portfolio Type</strong>
-                <span>Long-only Constrained</span>
-            </div>
-        </div>
-    </div>
-    </div>
-
-    <div class="tab-panel" data-panel="risk" hidden>
-    <!-- Risk Analysis -->
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Risk Analysis</h2>
-        <p class="risk-note">
-            Historical (not parametric) measures over the same window as the rest of this page, using each
-            strategy's weights held constant. VaR is the one-day loss exceeded on only 5% of days; CVaR is the
-            average loss on those worst 5% of days; max drawdown is the worst peak-to-trough decline.
-            These are in-sample - the strategies' weights were fitted to this same history.
-        </p>
-        <div style="overflow-x: auto;">
-            <table class="portfolio-table">
-                <thead>
-                    <tr>
-                        <th>Strategy</th>
-                        <th>1-Day VaR (95%)</th>
-                        <th>1-Day CVaR (95%)</th>
-                        <th>Max Drawdown</th>
-                    </tr>
-                </thead>
-                <tbody>
+        <section class="win c6">
+            <h2>Risk Analysis</h2>
+            <div class="body">
+                <table class="t">
+                    <thead><tr><th>Strategy</th><th>1-Day VaR (95%)</th><th>1-Day CVaR (95%)</th><th>Max Drawdown</th></tr></thead>
+                    <tbody>
                     {% for name, data in comparison.items() %}
                     <tr>
                         <td><strong>{{ name }}</strong></td>
                         <td>{{ "%.2f"|format(data.var_95 * 100) }}%</td>
                         <td>{{ "%.2f"|format(data.cvar_95 * 100) }}%</td>
-                        <td><span class="badge badge-negative">{{ "%.2f"|format(data.max_drawdown * 100) }}%</span></td>
+                        <td class="neg">{{ "%.2f"|format(data.max_drawdown * 100) }}%</td>
                     </tr>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <h3 style="margin-top: 2rem;"><span class="icon"></span>Where the Risk Comes From</h3>
-        <p class="risk-note">
-            Each asset's share of total portfolio variance versus its weight. An asset whose risk share is well above
-            its weight (flagged in red) is contributing more risk than its allocation suggests.
-        </p>
-        {% for name, data in comparison.items() %}
-        <div class="weights-table-container">
-            <h4>{{ name }}</h4>
-            <div style="overflow-x: auto;">
-                <table class="weights-table">
-                    <thead>
-                        <tr>
-                            <th>Asset</th>
-                            <th>Weight</th>
-                            <th>Share of Risk</th>
-                            <th>Risk vs. Weight</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for symbol, risk_share in data.risk_contributions.items() %}
-                        {% set weight = portfolio_weights[name][symbol] %}
-                        {% set gap = ((risk_share - weight) * 100)|round(1) + 0 %}
-                        <tr>
-                            <td><strong>{{ symbol }}</strong></td>
-                            <td>{{ "%.1f"|format(weight * 100) }}%</td>
-                            <td>
-                                <span class="risk-bar-track"><span class="risk-bar-fill" style="width: {{ [[risk_share * 100, 0]|max, 100]|min }}%;"></span></span>
-                                {{ "%.1f"|format(risk_share * 100) }}%
-                            </td>
-                            <td>
-                                <span class="badge {% if gap > 5 %}badge-negative{% elif gap < -5 %}badge-positive{% else %}badge-neutral{% endif %}">
-                                    {{ "%+.1f"|format(gap) }} pts
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
                     </tbody>
                 </table>
+                <p class="note">Historical, in-sample, weights held constant. VaR: one-day loss exceeded on 5% of days; CVaR: average loss on those days; drawdown: worst peak-to-trough decline.</p>
             </div>
-        </div>
-        {% endfor %}
-    </div>
+        </section>
 
-    </div>
+        <!-- Row 2: charts -->
+        {% if image_data %}
+        <section class="win c4">
+            <h2>Efficient Frontier</h2>
+            <div class="body"><img class="chart" src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier" title="Click to enlarge"></div>
+        </section>
+        <section class="win c4">
+            <h2>Cumulative Returns</h2>
+            <div class="body"><img class="chart" src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns" title="Click to enlarge"></div>
+        </section>
+        <section class="win c4">
+            <h2>Correlation Matrix</h2>
+            <div class="body"><img class="chart" src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix" title="Click to enlarge"></div>
+        </section>
+        {% endif %}
 
-    <div class="tab-panel" data-panel="allocation" hidden>
-    <!-- Portfolio Weights -->
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Asset Allocation</h2>
-        
-        {% for portfolio_name, weights in portfolio_weights.items() %}
-        <div class="weights-table-container">
-            <h3><span class="icon"></span>{{ portfolio_name }} Allocation</h3>
-            <div style="overflow-x: auto;">
-                <table class="weights-table">
-                    <thead>
-                        <tr>
-                            <th>Asset</th>
-                            <th>Weight</th>
-                            <th>Allocation</th>
-                        </tr>
-                    </thead>
+        <!-- Row 3: allocation, risk contribution, assets, donuts -->
+        <section class="win c3">
+            <h2>Asset Allocation</h2>
+            <div class="body">
+                <table class="t">
+                    <thead><tr><th>Asset</th>{% for name in portfolio_weights %}<th>{{ name|replace(' Portfolio', '')|replace('Minimum Variance', 'Min Var')|replace('Monte Carlo Optimal', 'MC Opt') }}</th>{% endfor %}</tr></thead>
                     <tbody>
-                        {% for symbol, weight in weights.items() %}
-                        {% if weight > 0.001 %}
-                        <tr>
-                            <td><strong>{{ symbol }}</strong></td>
-                            <td>{{ "%.4f"|format(weight) }}</td>
-                            <td>{{ "%.1f"|format(weight * 100) }}%</td>
-                        </tr>
-                        {% endif %}
-                        {% endfor %}
-                        <tr class="total-row">
-                            <td><strong>Total Allocation</strong></td>
-                            <td><strong>{{ "%.4f"|format(weights.values()|sum) }}</strong></td>
-                            <td><strong>{{ "%.1f"|format(weights.values()|sum * 100) }}%</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <!-- Individual Performance -->
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Individual Asset Performance</h2>
-        <div style="overflow-x: auto;">
-            <table class="portfolio-table">
-                <thead>
+                    {% for symbol in symbols %}
                     <tr>
-                        <th>Asset</th>
-                        <th>Annual Return</th>
-                        <th>Annual Volatility</th>
-                        <th>Sharpe Ratio</th>
+                        <td><strong>{{ symbol }}</strong></td>
+                        {% for name, weights in portfolio_weights.items() %}
+                        <td>{{ "%.1f"|format((weights[symbol] or 0) * 100) }}%</td>
+                        {% endfor %}
                     </tr>
-                </thead>
-                <tbody>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="win c3">
+            <h2>Share of Risk</h2>
+            <div class="body">
+                <table class="t">
+                    <thead><tr><th>Asset</th>{% for name in comparison %}<th>{{ name|replace(' Portfolio', '')|replace('Minimum Variance', 'Min Var')|replace('Monte Carlo Optimal', 'MC Opt') }}</th>{% endfor %}</tr></thead>
+                    <tbody>
+                    {% for symbol in symbols %}
+                    <tr>
+                        <td><strong>{{ symbol }}</strong></td>
+                        {% for name, data in comparison.items() %}
+                        {% set rs = data.risk_contributions[symbol] %}
+                        {% set gap = ((rs - portfolio_weights[name][symbol]) * 100)|round(1) + 0 %}
+                        <td class="{% if gap > 5 %}neg{% elif gap < -5 %}pos{% endif %}" title="Weight {{ '%.1f'|format(portfolio_weights[name][symbol] * 100) }}%, risk vs. weight {{ '%+.1f'|format(gap) }} pts">{{ "%.1f"|format(rs * 100) }}%</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                <p class="note">Share of portfolio variance per asset. Red: contributes 5+ pts more risk than its weight; green: 5+ pts less.</p>
+            </div>
+        </section>
+
+        <section class="win c3">
+            <h2>Individual Assets</h2>
+            <div class="body">
+                <table class="t">
+                    <thead><tr><th>Asset</th><th>Return</th><th>Vol</th><th>Sharpe</th></tr></thead>
+                    <tbody>
                     {% for symbol, performance in asset_performance.items() %}
                     <tr>
                         <td><strong>{{ symbol }}</strong></td>
-                        <td>
-                            <span class="badge {% if performance.return > 0 %}badge-positive{% else %}badge-negative{% endif %}">
-                                {{ "%.2f"|format(performance.return * 100) }}%
-                            </span>
-                        </td>
-                        <td>{{ "%.2f"|format(performance.volatility * 100) }}%</td>
-                        <td>
-                            <span class="badge {% if performance.sharpe_ratio > 1 %}badge-positive{% elif performance.sharpe_ratio > 0 %}badge-neutral{% else %}badge-negative{% endif %}">
-                                {{ "%.2f"|format(performance.sharpe_ratio) }}
-                            </span>
-                        </td>
+                        <td class="{{ 'pos' if performance.return > 0 else 'neg' }}">{{ "%.1f"|format(performance.return * 100) }}%</td>
+                        <td>{{ "%.1f"|format(performance.volatility * 100) }}%</td>
+                        <td class="{% if performance.sharpe_ratio > 1 %}pos{% elif performance.sharpe_ratio > 0 %}neu{% else %}neg{% endif %}">{{ "%.2f"|format(performance.sharpe_ratio) }}</td>
                     </tr>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    </div>
-
-    {% if image_data %}
-    <div class="tab-panel" data-panel="charts" hidden>
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Visual Analytics</h2>
-        
-        <!-- Wide charts get the full card width: at half width their axis labels are unreadable. -->
-        <div class="chart-container">
-            <h3><span class="icon"></span>Efficient Frontier</h3>
-            <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
-        </div>
-
-        <div class="chart-container">
-            <h3><span class="icon"></span>Cumulative Returns</h3>
-            <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
-        </div>
-
-        <div class="chart-container chart-narrow">
-            <h3><span class="icon"></span>Correlation Matrix</h3>
-            <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
-        </div>
-
-        <div class="chart-container">
-            <h3><span class="icon"></span>Portfolio Weights Distribution</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                <div>
-                    <h4>Minimum Variance</h4>
-                    <img src="data:image/png;base64,{{ image_data.weights_min_var }}" alt="Minimum Variance Portfolio Weights">
-                </div>
-                <div>
-                    <h4>Tangency Portfolio</h4>
-                    <img src="data:image/png;base64,{{ image_data.weights_tangency }}" alt="Tangency Portfolio Weights"/>
-                </div>
+                    </tbody>
+                </table>
             </div>
-        </div>
-    </div>
-    </div>
-    {% endif %}
+        </section>
 
+        {% if image_data %}
+        <section class="win c3">
+            <h2>Optimal Weights</h2>
+            <div class="body donuts">
+                <div><img class="chart" src="data:image/png;base64,{{ image_data.weights_min_var }}" alt="Minimum Variance Portfolio Weights" title="Click to enlarge"><div class="cap">Min Variance</div></div>
+                <div><img class="chart" src="data:image/png;base64,{{ image_data.weights_tangency }}" alt="Tangency Portfolio Weights" title="Click to enlarge"><div class="cap">Tangency</div></div>
+            </div>
+        </section>
+        {% endif %}
+    </div>
 </div>
-
-<!-- JavaScript for interactive features -->
-<script>
-    // Add hover effects and tooltips
-    document.addEventListener('DOMContentLoaded', function() {
-
-        // Dashboard tabs (all panels stay in the DOM; hash remembers the tab)
-        const tabs = document.querySelectorAll('.tab-btn');
-        const panels = document.querySelectorAll('.tab-panel');
-        function showTab(name) {
-            if (![...panels].some(p => p.dataset.panel === name)) name = 'overview';
-            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-            panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
-            history.replaceState(null, '', '#' + name);
-        }
-        tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
-        showTab(location.hash.slice(1) || 'overview');
-
-        // Add tooltips to metrics
-        const metrics = document.querySelectorAll('.metric-card');
-        metrics.forEach(metric => {
-            metric.title = 'Click to learn more about this metric';
-            metric.style.cursor = 'pointer';
-        });
-
-        // Print functionality
-        const printButton = document.createElement('button');
-        printButton.textContent = '🖨️ Print Report';
-        printButton.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 12px 20px;
-            background-color: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            z-index: 1000;
-            font-weight: 500;
-            font-family: inherit;
-        `;
-        printButton.onclick = () => window.print();
-        document.body.appendChild(printButton);
-    });
-</script>
+<script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
 {% endblock %}

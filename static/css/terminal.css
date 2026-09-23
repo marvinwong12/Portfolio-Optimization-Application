@@ -1,0 +1,78 @@
+/* Dense "terminal" dashboard layout shared by the portfolio and stock analysis
+   pages: a 12-column grid of small windows, compact tables, thumbnail charts. */
+
+.term {
+    max-width: 1900px;
+    margin: 0 auto;
+    padding: 0.75rem 1rem 1.5rem;
+    color: var(--text-primary);
+}
+
+/* ---- header bar ---- */
+.term-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+    margin-bottom: 0.6rem;
+}
+.term-head h1 { font-size: 1.35rem; margin: 0; font-weight: 600; }
+.term-head .sub { color: var(--text-secondary); font-size: 0.85rem; }
+.term-head .links { margin-left: auto; display: flex; gap: 1rem; font-size: 0.85rem; align-items: center; }
+.term-head .links button {
+    background: var(--accent); color: #fff; border: none; border-radius: 4px;
+    padding: 0.3rem 0.7rem; font: inherit; cursor: pointer;
+}
+
+/* ---- KPI tiles ---- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; margin-bottom: 0.6rem; }
+.kpi { background: var(--bg-card); border-left: 3px solid var(--accent); border-radius: 4px; padding: 0.4rem 0.7rem; }
+.kpi .l { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.kpi .v { font-size: 1.25rem; font-weight: 600; line-height: 1.2; }
+.kpi .s { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- window grid ---- */
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 0.5rem; }
+.win { background: var(--bg-card); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; min-width: 0; display: flex; flex-direction: column; }
+.win > h2 {
+    margin: 0; padding: 0.3rem 0.6rem; font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary);
+    background: rgba(74,134,232,0.14); border-bottom: 1px solid rgba(74,134,232,0.4);
+}
+.win .body { padding: 0.3rem 0.4rem; overflow: auto; flex: 1; }
+.win .note { font-size: 0.7rem; color: var(--text-secondary); margin: 0.3rem 0.1rem 0; line-height: 1.35; }
+.c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c5 { grid-column: span 5; }
+.c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+
+/* ---- compact tables ---- */
+.t { width: 100%; border-collapse: collapse; }
+.t th, .t td { font-size: 0.78rem; padding: 0.22rem 0.4rem; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); }
+.t th:first-child, .t td:first-child { text-align: left; }
+.t th { color: var(--text-secondary); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.t tr:last-child td { border-bottom: none; }
+.t tbody tr:hover td { background: rgba(255,255,255,0.04); }
+.pos { color: #4CAF50; } .neg { color: #F44336; } .neu { color: #FF9800; }
+
+/* label / value rows for stat lists */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.75rem; font-size: 0.78rem; }
+.kv dt { color: var(--text-secondary); margin: 0; }
+.kv dd { margin: 0; text-align: right; font-weight: 600; }
+
+/* ---- charts ---- */
+.win img.chart { display: block; width: 100%; height: auto; max-height: 200px; object-fit: contain; cursor: zoom-in; border-radius: 3px; }
+.donuts img.chart { max-height: 150px; }
+.donuts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+.donuts .cap { font-size: 0.68rem; color: var(--text-secondary); text-align: center; text-transform: uppercase; }
+
+/* click-to-enlarge */
+.lightbox { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 4px; }
+
+@media (max-width: 1100px) {
+    .c3, .c4, .c5, .c6, .c7, .c8 { grid-column: span 6; }
+}
+@media (max-width: 700px) {
+    .c3, .c4, .c5, .c6, .c7, .c8 { grid-column: span 12; }
+}
+@media print { .term-head .links { display: none; } }
