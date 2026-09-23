@@ -1,9 +1,26 @@
 """Single-stock fundamental/technical analysis using yFinance data."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import numpy as np
 import yfinance as yf
 
 from .cache import price_cache
+
+
+# Same-sector large caps used when the user does not name peers (Yahoo sector labels).
+SECTOR_PEERS = {
+    'Technology': ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CRM'],
+    'Communication Services': ['GOOGL', 'META', 'NFLX', 'DIS', 'T', 'VZ'],
+    'Consumer Cyclical': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'LOW'],
+    'Consumer Defensive': ['WMT', 'PG', 'KO', 'PEP', 'COST', 'PM'],
+    'Financial Services': ['JPM', 'BAC', 'WFC', 'GS', 'MS', 'V'],
+    'Healthcare': ['LLY', 'JNJ', 'UNH', 'MRK', 'ABBV', 'PFE'],
+    'Industrials': ['GE', 'CAT', 'RTX', 'HON', 'UPS', 'BA'],
+    'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'OXY'],
+    'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'SRE'],
+    'Real Estate': ['PLD', 'AMT', 'EQIX', 'SPG', 'O', 'WELL'],
+    'Basic Materials': ['LIN', 'SHW', 'FCX', 'NEM', 'APD', 'ECL'],
+}
 
 
 class StockAnalysis:
@@ -235,26 +252,45 @@ class StockAnalysis:
 
         return None
 
-    def relative_valuation(self, comparable_tickers):
-        """Compare valuation with peer companies."""
-        base_metrics = self.calculate_valuation_ratios()
-        peer_metrics = {}
+    def default_peers(self, count=4):
+        """Large-cap peers from the same sector, excluding this stock. Yahoo
+        Finance has no peer-lookup endpoint, so this uses a small curated map."""
+        candidates = SECTOR_PEERS.get(self.info.get('sector'), [])
+        return [t for t in candidates if t != self.symbol.upper()][:count]
 
-        for peer in comparable_tickers:
+    def relative_valuation(self, comparable_tickers):
+        """Compare valuation multiples with peer companies. Peers are fetched
+        concurrently; a peer that fails becomes an error marker rather than
+        breaking the comparison. Includes the median of the peers that loaded."""
+        base_metrics = self.calculate_valuation_ratios()
+
+        def fetch_peer(peer):
             try:
-                peer_analysis = StockAnalysis(peer)
-                peer_metrics[peer] = peer_analysis.calculate_valuation_ratios()
+                return StockAnalysis(peer).calculate_valuation_ratios()
             except Exception as e:
                 print(f"Error fetching data for peer {peer}: {e}")
-                peer_metrics[peer] = "Error fetching data"
+                return "Error fetching data"
+
+        peers = list(comparable_tickers)
+        with ThreadPoolExecutor(max_workers=max(1, min(len(peers), 5))) as pool:
+            peer_metrics = dict(zip(peers, pool.map(fetch_peer, peers)))
+
+        loaded = [m for m in peer_metrics.values() if isinstance(m, dict)]
+        peer_median = {}
+        for metric in base_metrics:
+            values = [m[metric] for m in loaded
+                      if isinstance(m.get(metric), (int, float)) and not isinstance(m.get(metric), bool)]
+            peer_median[metric] = float(np.median(values)) if values else None
 
         return {
             'base_company': base_metrics,
-            'peers': peer_metrics
+            'peers': peer_metrics,
+            'peer_median': peer_median,
         }
 
-    def comprehensive_analysis(self):
-        """Perform comprehensive analysis of the stock."""
+    def comprehensive_analysis(self, peers=None):
+        """Perform comprehensive analysis of the stock. `peers` is a list of
+        comparable tickers; None picks same-sector defaults, [] skips the comparison."""
         self.fetch_data()
 
         self.analysis_results = {
@@ -279,5 +315,10 @@ class StockAnalysis:
                 'number_of_analysts': self.info.get('numberOfAnalystOpinions')
             }
         }
+
+        if peers is None:
+            peers = self.default_peers()
+        if peers:
+            self.analysis_results['relative_valuation'] = self.relative_valuation(peers)
 
         return self.analysis_results

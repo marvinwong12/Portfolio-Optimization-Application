@@ -288,6 +288,55 @@ class TestRelativeValuation:
         assert result['peers']['GOOD']['pe_ratio'] == 20.0  # fake Ticker returns the same info for every symbol
 
 
+class TestPeerComparison:
+    def test_peer_median_uses_only_numeric_loaded_peers(self, monkeypatch):
+        infos = {'A': {'trailingPE': 10.0}, 'B': {'trailingPE': 30.0}, 'C': {'trailingPE': 50.0}}
+
+        def factory(symbol):
+            return _FakeTicker(symbol, info=infos.get(symbol, {'trailingPE': 20.0}))
+
+        monkeypatch.setattr(stock_analysis_module.yf, 'Ticker', factory)
+        stock = StockAnalysis('TEST')
+        result = stock.relative_valuation(['A', 'B', 'C'])
+        assert result['peer_median']['pe_ratio'] == 30.0
+        assert result['peer_median']['peg_ratio'] is None  # nobody reports it
+
+    def test_median_ignores_failed_peers(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={'trailingPE': 20.0})
+        real_init = StockAnalysis.__init__
+
+        def flaky_init(self, ticker_symbol):
+            if ticker_symbol == 'BAD':
+                raise ValueError('boom')
+            real_init(self, ticker_symbol)
+
+        monkeypatch.setattr(StockAnalysis, '__init__', flaky_init)
+        result = stock.relative_valuation(['GOOD', 'BAD'])
+        assert list(result['peers']) == ['GOOD', 'BAD']  # order preserved
+        assert result['peer_median']['pe_ratio'] == 20.0
+
+    def test_default_peers_are_same_sector_and_exclude_self(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={'sector': 'Technology'})
+        stock.symbol = 'AAPL'
+        peers = stock.default_peers()
+        assert 'AAPL' not in peers
+        assert len(peers) == 4
+
+    def test_default_peers_empty_for_unknown_sector(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={'sector': 'Made Up'})
+        assert stock.default_peers() == []
+
+    def test_comprehensive_analysis_includes_peer_comparison(self, monkeypatch):
+        stock = _make_stock_with_financials(monkeypatch, info={'sector': 'Technology', 'dividendYield': None})
+        results = stock.comprehensive_analysis()
+        assert 'relative_valuation' in results
+        assert results['relative_valuation']['peer_median']
+
+    def test_explicit_empty_peer_list_skips_comparison(self, monkeypatch):
+        stock = _make_stock_with_financials(monkeypatch, info={'sector': 'Technology', 'dividendYield': None})
+        assert 'relative_valuation' not in stock.comprehensive_analysis(peers=[])
+
+
 class TestComprehensiveAnalysis:
     def test_assembles_every_section(self, monkeypatch):
         info = {

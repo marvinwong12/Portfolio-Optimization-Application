@@ -249,35 +249,44 @@
     
     <!-- Relative Valuation (if available) -->
     {% if analysis.relative_valuation %}
+    {% set rv = analysis.relative_valuation %}
     <div class="analysis-section">
         <h2>Relative Valuation vs Peers</h2>
-        
-        <h3>Valuation Multiples Comparison</h3>
+        <p style="color: var(--text-secondary);">
+            Multiples for {{ symbol }} next to its peers and the peer median. Lower valuation multiples
+            (P/E, P/S, EV/EBITDA) than the median can mean a cheaper stock, or one the market expects less
+            growth from; peers listed as N/A could not be fetched or do not report that metric.
+        </p>
         <div style="overflow-x: auto;">
             <table class="comparison-table">
                 <thead>
                     <tr>
                         <th>Metric</th>
                         <th>{{ symbol }}</th>
-                        {% for peer in analysis.relative_valuation.peers.keys() %}
+                        {% for peer in rv.peers.keys() %}
                         <th>{{ peer }}</th>
                         {% endfor %}
+                        <th>Peer Median</th>
+                        <th>vs. Median</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for metric in analysis.relative_valuation.base_company.keys() %}
+                    {% for metric, base in rv.base_company.items() %}
+                    {% set median = rv.peer_median[metric] %}
                     <tr>
                         <td>{{ metric|replace('_', ' ')|title }}</td>
-                        <td>{{ "%.2f"|format(analysis.relative_valuation.base_company[metric]) if analysis.relative_valuation.base_company[metric] is number else analysis.relative_valuation.base_company[metric] or 'N/A' }}</td>
-                        {% for peer, peer_metrics in analysis.relative_valuation.peers.items() %}
-                        <td>
-                            {% if peer_metrics[metric] is not none and peer_metrics[metric] != 'Error fetching data' %}
-                                {{ "%.2f"|format(peer_metrics[metric]) if peer_metrics[metric] is number else peer_metrics[metric] or 'N/A' }}
-                            {% else %}
-                                N/A
-                            {% endif %}
-                        </td>
+                        <td><strong>{{ "%.2f"|format(base) if base is number else 'N/A' }}</strong></td>
+                        {% for peer, peer_metrics in rv.peers.items() %}
+                        {% set pv = peer_metrics[metric] if peer_metrics is mapping else none %}
+                        <td>{{ "%.2f"|format(pv) if pv is number else 'N/A' }}</td>
                         {% endfor %}
+                        <td>{{ "%.2f"|format(median) if median is not none else 'N/A' }}</td>
+                        <td>
+                            {% if base is number and median is not none and median != 0 %}
+                                {% set diff = (base / median - 1) * 100 %}
+                                <span class="{% if metric == 'dividend_yield' %}{{ 'positive' if diff > 0 else 'negative' }}{% else %}{{ 'positive' if diff < 0 else 'negative' }}{% endif %}">{{ "%+.0f"|format(diff) }}%</span>
+                            {% else %}N/A{% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

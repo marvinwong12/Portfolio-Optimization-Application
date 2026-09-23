@@ -1,5 +1,6 @@
 """Flask routes for the portfolio optimization app."""
 import json
+import re
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -486,6 +487,24 @@ def update(id):
         return render_template('update.html', portfolio=portfolio)
 
 
+MAX_PEERS = 5
+_PEER_PATTERN = re.compile(r'^[A-Z0-9.\-]{1,10}$')
+
+
+def _parse_peers(raw, own_symbol):
+    """Comma/space-separated peer tickers -> cleaned list (max MAX_PEERS,
+    de-duplicated, own symbol removed). Blank input returns None, meaning
+    'use same-sector defaults'."""
+    tokens = [t.strip().upper() for t in re.split(r'[,\s]+', raw or '') if t.strip()]
+    if not tokens:
+        return None
+    peers = []
+    for token in tokens:
+        if _PEER_PATTERN.match(token) and token != own_symbol and token not in peers:
+            peers.append(token)
+    return peers[:MAX_PEERS]
+
+
 @bp.route('/analyze_stock', methods=['POST'])
 @login_required
 def analyze_stock():
@@ -500,7 +519,8 @@ def analyze_stock():
     try:
         # Perform comprehensive analysis
         analyzer = StockAnalysis(ticker_symbol)
-        analysis_results = analyzer.comprehensive_analysis()
+        analysis_results = analyzer.comprehensive_analysis(
+            peers=_parse_peers(request.form.get('peers', ''), ticker_symbol))
 
         return render_template('stock_analysis.html',
                              analysis=analysis_results,
