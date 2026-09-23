@@ -13,6 +13,10 @@ minimum-variance and tangency (max Sharpe) portfolios, runs a
 Monte Carlo simulation to visualize the efficient frontier, and backtests
 each strategy against a naive equal-weight benchmark.
 
+**Live demo:** https://portfolio-optimization-application.onrender.com/ - click **Try Demo** on the
+login page to explore without registering. It runs on Render's free tier, so the first load after
+a period of inactivity can take about a minute while the server wakes up.
+
 ## Screenshots
 
 **Efficient frontier**: a cloud of random portfolios, the exact frontier, each asset, the
