@@ -66,6 +66,19 @@
     .comparison-table th {
         background-color: rgba(74, 134, 232, 0.2);
     }
+
+    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .kpi-card { background-color: var(--bg-card); border-radius: 0.5rem; padding: 1.1rem 1.25rem; border-left: 3px solid var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .kpi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+    .kpi-value { font-size: 1.8rem; font-weight: 600; margin: 0.2rem 0; }
+    .kpi-sub { font-size: 0.85rem; color: var(--text-secondary); }
+    .tab-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.12); margin-bottom: 1.5rem; }
+    .tab-btn { background: none; border: none; color: var(--text-secondary); padding: 0.75rem 1.25rem; font: inherit; font-size: 1rem; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+    .tab-panel[hidden] { display: none; }
+    .tab-panel > .analysis-section:first-child { margin-top: 0; }
+    @media print { .tab-panel[hidden] { display: block; } .tab-bar { display: none; } }
 </style>
 {% endblock %}
 
@@ -81,6 +94,29 @@
     </div>
     {% else %}
     
+    <div class="kpi-strip">
+        <div class="kpi-card"><div class="kpi-label">Price</div>
+            <div class="kpi-value">{% if analysis.basic_info.current_price %}${{ "%.2f"|format(analysis.basic_info.current_price) }}{% else %}N/A{% endif %}</div>
+            <div class="kpi-sub">{{ analysis.basic_info.name }}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Annualized Return</div>
+            <div class="kpi-value {% if analysis.performance_metrics.annualized_return > 0 %}positive{% else %}negative{% endif %}">{{ "%.1f"|format(analysis.performance_metrics.annualized_return * 100) }}%</div>
+            <div class="kpi-sub">Vol {{ "%.1f"|format(analysis.performance_metrics.annualized_volatility * 100) }}%</div></div>
+        <div class="kpi-card"><div class="kpi-label">Sharpe Ratio</div>
+            <div class="kpi-value {% if analysis.performance_metrics.sharpe_ratio > 1 %}positive{% elif analysis.performance_metrics.sharpe_ratio > 0 %}neutral{% else %}negative{% endif %}">{{ "%.2f"|format(analysis.performance_metrics.sharpe_ratio) }}</div>
+            <div class="kpi-sub">Beta {{ "%.2f"|format(analysis.performance_metrics.beta) if analysis.performance_metrics.beta is not none else 'N/A' }}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Max Drawdown</div>
+            <div class="kpi-value negative">{{ "%.1f"|format(analysis.performance_metrics.max_drawdown * 100) }}%</div>
+            <div class="kpi-sub">95% VaR {{ "%.2f"|format(analysis.performance_metrics.var_95 * 100) }}%</div></div>
+    </div>
+
+    <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" role="tab" data-tab="overview">Overview</button>
+        <button class="tab-btn" role="tab" data-tab="valuation">Valuation</button>
+        <button class="tab-btn" role="tab" data-tab="fundamentals">Fundamentals</button>
+        <button class="tab-btn" role="tab" data-tab="signals">Signals</button>
+    </div>
+
+    <div class="tab-panel" data-panel="overview">
     <!-- Basic Information -->
     <div class="analysis-section">
         <h2>Basic Information</h2>
@@ -177,6 +213,9 @@
         </div>
     </div>
     
+    </div>
+
+    <div class="tab-panel" data-panel="valuation" hidden>
     <!-- Valuation Ratios -->
     <div class="analysis-section">
         <h2>Valuation Ratios</h2>
@@ -208,6 +247,48 @@
         </div>
     </div>
     
+    <!-- Relative Valuation (if available) -->
+    {% if analysis.relative_valuation %}
+    <div class="analysis-section">
+        <h2>Relative Valuation vs Peers</h2>
+        
+        <h3>Valuation Multiples Comparison</h3>
+        <div style="overflow-x: auto;">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>{{ symbol }}</th>
+                        {% for peer in analysis.relative_valuation.peers.keys() %}
+                        <th>{{ peer }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for metric in analysis.relative_valuation.base_company.keys() %}
+                    <tr>
+                        <td>{{ metric|replace('_', ' ')|title }}</td>
+                        <td>{{ "%.2f"|format(analysis.relative_valuation.base_company[metric]) if analysis.relative_valuation.base_company[metric] is number else analysis.relative_valuation.base_company[metric] or 'N/A' }}</td>
+                        {% for peer, peer_metrics in analysis.relative_valuation.peers.items() %}
+                        <td>
+                            {% if peer_metrics[metric] is not none and peer_metrics[metric] != 'Error fetching data' %}
+                                {{ "%.2f"|format(peer_metrics[metric]) if peer_metrics[metric] is number else peer_metrics[metric] or 'N/A' }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    
+    </div>
+
+    <div class="tab-panel" data-panel="fundamentals" hidden>
     <!-- Profitability Metrics -->
     <div class="analysis-section">
         <h2>Profitability Metrics</h2>
@@ -264,6 +345,9 @@
         </div>
     </div>
     
+    </div>
+
+    <div class="tab-panel" data-panel="signals" hidden>
     <!-- Technical Indicators -->
     <div class="analysis-section">
         <h2>Technical Indicators</h2>
@@ -317,49 +401,28 @@
         </div>
     </div>
     
-    <!-- Relative Valuation (if available) -->
-    {% if analysis.relative_valuation %}
-    <div class="analysis-section">
-        <h2>Relative Valuation vs Peers</h2>
-        
-        <h3>Valuation Multiples Comparison</h3>
-        <div style="overflow-x: auto;">
-            <table class="comparison-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th>{{ symbol }}</th>
-                        {% for peer in analysis.relative_valuation.peers.keys() %}
-                        <th>{{ peer }}</th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for metric in analysis.relative_valuation.base_company.keys() %}
-                    <tr>
-                        <td>{{ metric|replace('_', ' ')|title }}</td>
-                        <td>{{ "%.2f"|format(analysis.relative_valuation.base_company[metric]) if analysis.relative_valuation.base_company[metric] is number else analysis.relative_valuation.base_company[metric] or 'N/A' }}</td>
-                        {% for peer, peer_metrics in analysis.relative_valuation.peers.items() %}
-                        <td>
-                            {% if peer_metrics[metric] is not none and peer_metrics[metric] != 'Error fetching data' %}
-                                {{ "%.2f"|format(peer_metrics[metric]) if peer_metrics[metric] is number else peer_metrics[metric] or 'N/A' }}
-                            {% else %}
-                                N/A
-                            {% endif %}
-                        </td>
-                        {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
     </div>
-    {% endif %}
-    
+
     <div style="text-align: center; margin-top: 30px;">
         <a href="/" class="btn">Return to Portfolio Analysis</a>
     </div>
     
     {% endif %}
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const tabs = document.querySelectorAll('.tab-btn');
+        const panels = document.querySelectorAll('.tab-panel');
+        if (!tabs.length) return;
+        function showTab(name) {
+            if (![...panels].some(p => p.dataset.panel === name)) name = 'overview';
+            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
+            history.replaceState(null, '', '#' + name);
+        }
+        tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+        showTab(location.hash.slice(1) || 'overview');
+    });
+</script>
 {% endblock %}

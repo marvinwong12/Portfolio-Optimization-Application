@@ -53,10 +53,22 @@
         transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
 
-    .portfolio-section:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-    }
+
+
+    /* ===== DASHBOARD ===== */
+    .dash-actions { text-align: center; margin-bottom: 1.5rem; }
+    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .kpi-card { background-color: var(--bg-card); border-radius: 0.5rem; padding: 1.1rem 1.25rem; border-left: 3px solid var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .kpi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+    .kpi-value { font-size: 1.8rem; font-weight: 600; margin: 0.2rem 0; }
+    .kpi-sub { font-size: 0.85rem; color: var(--text-secondary); }
+    .tab-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.12); margin-bottom: 1.5rem; }
+    .tab-btn { background: none; border: none; color: var(--text-secondary); padding: 0.75rem 1.25rem; font: inherit; font-size: 1rem; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+    .tab-panel[hidden] { display: none; }
+    .tab-panel > .portfolio-section:first-child, .tab-panel > .portfolio-details:first-child { margin-top: 0; }
+    @media print { .tab-panel[hidden] { display: block; } .tab-bar { display: none; } }
 
     /* ===== TABLES ===== */
     .portfolio-table {
@@ -298,25 +310,10 @@
     }
 
     /* ===== ANIMATIONS ===== */
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
 
     .portfolio-section {
-        animation: fadeIn 0.5s ease-out;
     }
 
-    .portfolio-section:nth-child(2) { animation-delay: 0.1s; }
-    .portfolio-section:nth-child(3) { animation-delay: 0.2s; }
-    .portfolio-section:nth-child(4) { animation-delay: 0.3s; }
-    .portfolio-section:nth-child(5) { animation-delay: 0.4s; }
 
     /* ===== SCROLLBAR STYLING ===== */
     ::-webkit-scrollbar {
@@ -368,7 +365,7 @@
 <div class="content">
     <h1><span class="icon"></span>Portfolio Analysis: {{ portfolio.name }}</h1>
 
-    <div>
+    <div class="dash-actions">
         <a href="/" class="back-link">← Back to All Portfolios</a>
         &nbsp;|&nbsp;
         <a href="/backtest/{{ portfolio.id }}" class="back-link js-loading-trigger"
@@ -376,6 +373,34 @@
         &nbsp;|&nbsp;
         <a href="/history/{{ portfolio.id }}" class="back-link">Weight History →</a>
     </div>
+
+    {% set by_sharpe = comparison.items()|sort(attribute='1.sharpe_ratio', reverse=true)|list %}
+    {% set by_return = comparison.items()|sort(attribute='1.return', reverse=true)|list %}
+    {% set by_vol = comparison.items()|sort(attribute='1.volatility')|list %}
+    {% set by_dd = comparison.items()|sort(attribute='1.max_drawdown', reverse=true)|list %}
+    <div class="kpi-strip">
+        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div>
+            <div class="kpi-value">{{ "%.2f"|format(by_sharpe[0][1].sharpe_ratio) }}</div>
+            <div class="kpi-sub">{{ by_sharpe[0][0] }}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Highest Return</div>
+            <div class="kpi-value">{{ "%.1f"|format(by_return[0][1].return * 100) }}%</div>
+            <div class="kpi-sub">{{ by_return[0][0] }}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Lowest Volatility</div>
+            <div class="kpi-value">{{ "%.1f"|format(by_vol[0][1].volatility * 100) }}%</div>
+            <div class="kpi-sub">{{ by_vol[0][0] }}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Shallowest Max Drawdown</div>
+            <div class="kpi-value">{{ "%.1f"|format(by_dd[0][1].max_drawdown * 100) }}%</div>
+            <div class="kpi-sub">{{ by_dd[0][0] }}</div></div>
+    </div>
+
+    <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" role="tab" data-tab="overview">Overview</button>
+        <button class="tab-btn" role="tab" data-tab="risk">Risk</button>
+        <button class="tab-btn" role="tab" data-tab="allocation">Allocation</button>
+        {% if image_data %}<button class="tab-btn" role="tab" data-tab="charts">Charts</button>{% endif %}
+    </div>
+
+    <div class="tab-panel" data-panel="overview">
 
     <!-- Portfolio Details -->
     <div class="portfolio-details">
@@ -441,6 +466,52 @@
         </div>
     </div>
 
+    <!-- Analysis Details -->
+    <div class="portfolio-section">
+        <h2><span class="icon"></span>Analysis Parameters</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <strong>Risk-Free Rate</strong>
+                <span>
+                    {% if analysis_details.risk_free_rate is not none %}
+                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (annual)
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Analysis Period</strong>
+                <span>
+                    {% if analysis_details.start_date and analysis_details.end_date %}
+                        {{ analysis_details.start_date }} to {{ analysis_details.end_date }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Trading Days</strong>
+                <span>
+                    {% if analysis_details.trading_days %}
+                        {{ analysis_details.trading_days }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+            
+            <div class="metric-card">
+                <strong>Portfolio Type</strong>
+                <span>Long-only Constrained</span>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <div class="tab-panel" data-panel="risk" hidden>
     <!-- Risk Analysis -->
     <div class="portfolio-section">
         <h2><span class="icon"></span>Risk Analysis</h2>
@@ -516,6 +587,9 @@
         {% endfor %}
     </div>
 
+    </div>
+
+    <div class="tab-panel" data-panel="allocation" hidden>
     <!-- Portfolio Weights -->
     <div class="portfolio-section">
         <h2><span class="icon"></span>Asset Allocation</h2>
@@ -554,43 +628,6 @@
         {% endfor %}
     </div>
 
-    <!-- Visualizations -->
-    {% if image_data %}
-    <div class="portfolio-section">
-        <h2><span class="icon"></span>Visual Analytics</h2>
-        
-        <!-- Wide charts get the full card width: at half width their axis labels are unreadable. -->
-        <div class="chart-container">
-            <h3><span class="icon"></span>Efficient Frontier</h3>
-            <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
-        </div>
-
-        <div class="chart-container">
-            <h3><span class="icon"></span>Cumulative Returns</h3>
-            <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
-        </div>
-
-        <div class="chart-container chart-narrow">
-            <h3><span class="icon"></span>Correlation Matrix</h3>
-            <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
-        </div>
-
-        <div class="chart-container">
-            <h3><span class="icon"></span>Portfolio Weights Distribution</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
-                <div>
-                    <h4>Minimum Variance</h4>
-                    <img src="data:image/png;base64,{{ image_data.weights_min_var }}" alt="Minimum Variance Portfolio Weights">
-                </div>
-                <div>
-                    <h4>Tangency Portfolio</h4>
-                    <img src="data:image/png;base64,{{ image_data.weights_tangency }}" alt="Tangency Portfolio Weights"/>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
     <!-- Individual Performance -->
     <div class="portfolio-section">
         <h2><span class="icon"></span>Individual Asset Performance</h2>
@@ -626,70 +663,70 @@
         </div>
     </div>
 
-    <!-- Analysis Details -->
+    </div>
+
+    {% if image_data %}
+    <div class="tab-panel" data-panel="charts" hidden>
     <div class="portfolio-section">
-        <h2><span class="icon"></span>Analysis Parameters</h2>
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <strong>Risk-Free Rate</strong>
-                <span>
-                    {% if analysis_details.risk_free_rate is not none %}
-                        {{ "%.2f"|format(analysis_details.risk_free_rate * 100) }}% (annual)
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Analysis Period</strong>
-                <span>
-                    {% if analysis_details.start_date and analysis_details.end_date %}
-                        {{ analysis_details.start_date }} to {{ analysis_details.end_date }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Trading Days</strong>
-                <span>
-                    {% if analysis_details.trading_days %}
-                        {{ analysis_details.trading_days }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </span>
-            </div>
-            
-            <div class="metric-card">
-                <strong>Portfolio Type</strong>
-                <span>Long-only Constrained</span>
+        <h2><span class="icon"></span>Visual Analytics</h2>
+        
+        <!-- Wide charts get the full card width: at half width their axis labels are unreadable. -->
+        <div class="chart-container">
+            <h3><span class="icon"></span>Efficient Frontier</h3>
+            <img src="data:image/png;base64,{{ image_data.efficient_frontier }}" alt="Efficient Frontier">
+        </div>
+
+        <div class="chart-container">
+            <h3><span class="icon"></span>Cumulative Returns</h3>
+            <img src="data:image/png;base64,{{ image_data.cumulative_returns }}" alt="Cumulative Returns">
+        </div>
+
+        <div class="chart-container chart-narrow">
+            <h3><span class="icon"></span>Correlation Matrix</h3>
+            <img src="data:image/png;base64,{{ image_data.correlation_matrix }}" alt="Correlation Matrix">
+        </div>
+
+        <div class="chart-container">
+            <h3><span class="icon"></span>Portfolio Weights Distribution</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                <div>
+                    <h4>Minimum Variance</h4>
+                    <img src="data:image/png;base64,{{ image_data.weights_min_var }}" alt="Minimum Variance Portfolio Weights">
+                </div>
+                <div>
+                    <h4>Tangency Portfolio</h4>
+                    <img src="data:image/png;base64,{{ image_data.weights_tangency }}" alt="Tangency Portfolio Weights"/>
+                </div>
             </div>
         </div>
     </div>
+    </div>
+    {% endif %}
+
 </div>
 
 <!-- JavaScript for interactive features -->
 <script>
     // Add hover effects and tooltips
     document.addEventListener('DOMContentLoaded', function() {
+
+        // Dashboard tabs (all panels stay in the DOM; hash remembers the tab)
+        const tabs = document.querySelectorAll('.tab-btn');
+        const panels = document.querySelectorAll('.tab-panel');
+        function showTab(name) {
+            if (![...panels].some(p => p.dataset.panel === name)) name = 'overview';
+            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
+            history.replaceState(null, '', '#' + name);
+        }
+        tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+        showTab(location.hash.slice(1) || 'overview');
+
         // Add tooltips to metrics
         const metrics = document.querySelectorAll('.metric-card');
         metrics.forEach(metric => {
             metric.title = 'Click to learn more about this metric';
             metric.style.cursor = 'pointer';
-        });
-
-        // Smooth scrolling for anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
         });
 
         // Print functionality
