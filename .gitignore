@@ -6,3 +6,4 @@ venv/
 instance/*.db
 instance/*.db.bak*
 *.egg-info/
+.coverage

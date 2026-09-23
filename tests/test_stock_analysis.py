@@ -71,3 +71,245 @@ class TestPerformanceMetrics:
         metrics = stock.calculate_performance_metrics()
         assert np.isfinite(metrics['annualized_return'])
         assert metrics['annualized_volatility'] > 0
+
+
+class TestEstimateDividendFrequency:
+    def test_empty_dividends_is_unknown(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        assert stock._estimate_dividend_frequency(pd.Series(dtype=float)) == 'Unknown'
+
+    def test_single_dividend_is_unknown(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        series = pd.Series([0.5], index=pd.bdate_range('2023-01-02', periods=1))
+        assert stock._estimate_dividend_frequency(series) == 'Unknown'
+
+    def test_monthly_spacing_is_quarterly_bucket(self, monkeypatch):
+        # avg_days < 40 -> "Quarterly" in this simplified 3-bucket model.
+        stock = _make_stock_analysis(monkeypatch)
+        dates = pd.to_datetime(['2023-01-01', '2023-02-01', '2023-03-01'])
+        assert stock._estimate_dividend_frequency(pd.Series([0.1] * 3, index=dates)) == 'Quarterly'
+
+    def test_annual_spacing_is_annual(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        dates = pd.to_datetime(['2020-01-01', '2021-01-01', '2022-01-01'])
+        assert stock._estimate_dividend_frequency(pd.Series([0.1] * 3, index=dates)) == 'Annual'
+
+
+class TestTechnicalIndicators:
+    def test_keys_present_and_finite_with_enough_history(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        stock.historical_data = _make_history_df(n=250)
+        indicators = stock.calculate_technical_indicators()
+        for key in ('sma_50', 'sma_200', 'ema_20', 'rsi', 'macd', 'macd_signal',
+                    'bollinger_upper', 'bollinger_lower', 'bollinger_percent'):
+            assert key in indicators
+            assert np.isfinite(indicators[key])
+
+    def test_rsi_is_bounded_between_0_and_100(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        stock.historical_data = _make_history_df(n=250)
+        rsi = stock.calculate_technical_indicators()['rsi']
+        assert 0 <= rsi <= 100
+
+    def test_bollinger_bands_bracket_the_moving_average(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        stock.historical_data = _make_history_df(n=250)
+        indicators = stock.calculate_technical_indicators()
+        assert indicators['bollinger_lower'] < indicators['bollinger_upper']
+
+    def test_monotonically_rising_prices_give_rsi_of_100(self, monkeypatch):
+        """A pure uptrend has zero losses, so RSI saturates at 100 rather
+        than raising a division-by-zero error."""
+        stock = _make_stock_analysis(monkeypatch)
+        dates = pd.bdate_range('2023-01-02', periods=60)
+        close = 100 + np.arange(60, dtype=float)
+        stock.historical_data = pd.DataFrame({'Close': close, 'High': close + 1, 'Low': close - 1}, index=dates)
+        assert stock.calculate_technical_indicators()['rsi'] == pytest.approx(100.0)
+
+    def test_fetches_data_when_not_already_loaded(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch)
+        assert stock.historical_data is None
+        indicators = stock.calculate_technical_indicators()
+        assert stock.historical_data is not None
+        assert 'rsi' in indicators
+
+
+class TestValuationRatios:
+    def test_passes_through_known_info_fields(self, monkeypatch):
+        info = {
+            'trailingPE': 25.4, 'forwardPE': 22.1, 'pegRatio': 1.8,
+            'priceToSalesTrailing12Months': 6.2, 'priceToBook': 12.5,
+            'enterpriseToEbitda': 18.0, 'enterpriseToRevenue': 5.9, 'dividendYield': 0.5,
+        }
+        stock = _make_stock_analysis(monkeypatch, info=info)
+        ratios = stock.calculate_valuation_ratios()
+        assert ratios == {
+            'pe_ratio': 25.4, 'forward_pe': 22.1, 'peg_ratio': 1.8,
+            'price_to_sales': 6.2, 'price_to_book': 12.5,
+            'ev_to_ebitda': 18.0, 'ev_to_revenue': 5.9, 'dividend_yield': 0.5,
+        }
+
+    def test_missing_fields_are_none(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={})
+        ratios = stock.calculate_valuation_ratios()
+        assert all(value is None for value in ratios.values())
+
+
+class _FakeTickerWithFinancials(_FakeTicker):
+    def __init__(self, symbol, info=None, dividends=None, financials=None,
+                 income_stmt=None, balance_sheet=None, cash_flow=None):
+        super().__init__(symbol, info=info, dividends=dividends)
+        self.financials = financials if financials is not None else pd.DataFrame()
+        self.income_stmt = income_stmt if income_stmt is not None else pd.DataFrame()
+        self.balance_sheet = balance_sheet if balance_sheet is not None else pd.DataFrame()
+        self.cash_flow = cash_flow if cash_flow is not None else pd.DataFrame()
+
+
+def _make_stock_with_financials(monkeypatch, **kwargs):
+    def factory(symbol):
+        return _FakeTickerWithFinancials(symbol, **kwargs)
+    monkeypatch.setattr(stock_analysis_module.yf, 'Ticker', factory)
+    return StockAnalysis('TEST')
+
+
+class TestProfitabilityMetrics:
+    def test_computes_margins_and_returns_from_financials(self, monkeypatch):
+        year = pd.Timestamp('2023-12-31')
+        financials = pd.DataFrame(
+            {year: [500.0, 300.0, 200.0, 1000.0]},
+            index=['Gross Profit', 'Operating Income', 'Net Income', 'Total Revenue'],
+        )
+        income_stmt = pd.DataFrame({year: [200.0]}, index=['Net Income'])
+        balance_sheet = pd.DataFrame(
+            {year: [800.0, 2000.0]},
+            index=['Total Stockholder Equity', 'Total Assets'],
+        )
+        stock = _make_stock_with_financials(
+            monkeypatch, financials=financials, income_stmt=income_stmt, balance_sheet=balance_sheet,
+        )
+        metrics = stock.calculate_profitability_metrics()
+        assert metrics['gross_margin'] == pytest.approx(0.5)
+        assert metrics['operating_margin'] == pytest.approx(0.3)
+        assert metrics['net_margin'] == pytest.approx(0.2)
+        assert metrics['return_on_equity'] == pytest.approx(0.25)
+        assert metrics['return_on_assets'] == pytest.approx(0.1)
+
+    def test_missing_line_items_yield_none_without_crashing(self, monkeypatch):
+        year = pd.Timestamp('2023-12-31')
+        financials = pd.DataFrame({year: [1000.0]}, index=['Total Revenue'])  # margins missing
+        stock = _make_stock_with_financials(monkeypatch, financials=financials)
+        metrics = stock.calculate_profitability_metrics()
+        assert metrics['gross_margin'] is None
+        assert metrics['operating_margin'] is None
+        assert metrics['net_margin'] is None
+
+    def test_empty_financials_returns_all_none(self, monkeypatch):
+        stock = _make_stock_with_financials(monkeypatch)  # empty DataFrames -> IndexError internally
+        metrics = stock.calculate_profitability_metrics()
+        assert metrics == {
+            'gross_margin': None, 'operating_margin': None, 'net_margin': None,
+            'return_on_equity': None, 'return_on_assets': None,
+        }
+
+
+class TestDCFValuation:
+    def test_hand_computed_fair_value(self, monkeypatch):
+        year = pd.Timestamp('2023-12-31')
+        cash_flow = pd.DataFrame({year: [100.0]}, index=['Free Cash Flow'])
+        balance_sheet = pd.DataFrame({year: [50.0, 20.0]}, index=['Cash', 'Total Debt'])
+        stock = _make_stock_with_financials(
+            monkeypatch, info={'sharesOutstanding': 10.0}, cash_flow=cash_flow, balance_sheet=balance_sheet,
+        )
+
+        discount_rate, growth = 0.08, 0.02
+        fcf = 100.0
+        future = [fcf * (1 + growth) ** y / (1 + discount_rate) ** y for y in range(1, 6)]
+        terminal = (future[-1] * (1 + growth)) / (discount_rate - growth) / (1 + discount_rate) ** 5
+        expected_equity = sum(future) + terminal - 20.0 + 50.0
+        expected_fair_value = expected_equity / 10.0
+
+        assert stock.dcf_valuation(discount_rate, growth) == pytest.approx(expected_fair_value)
+
+    def test_estimates_fcf_when_not_directly_available(self, monkeypatch):
+        year = pd.Timestamp('2023-12-31')
+        cash_flow = pd.DataFrame(
+            {year: [120.0, -20.0]}, index=['Operating Cash Flow', 'Capital Expenditure'],
+        )
+        balance_sheet = pd.DataFrame({year: [0.0, 0.0]}, index=['Cash', 'Total Debt'])
+        stock = _make_stock_with_financials(
+            monkeypatch, info={'sharesOutstanding': 100.0}, cash_flow=cash_flow, balance_sheet=balance_sheet,
+        )
+        assert stock.dcf_valuation() is not None
+
+    def test_returns_none_without_shares_outstanding(self, monkeypatch):
+        year = pd.Timestamp('2023-12-31')
+        cash_flow = pd.DataFrame({year: [100.0]}, index=['Free Cash Flow'])
+        stock = _make_stock_with_financials(monkeypatch, info={}, cash_flow=cash_flow)
+        assert stock.dcf_valuation() is None
+
+    def test_returns_none_when_cash_flow_is_empty(self, monkeypatch):
+        stock = _make_stock_with_financials(monkeypatch, info={'sharesOutstanding': 10.0})
+        assert stock.dcf_valuation() is None
+
+    def test_returns_none_when_discount_rate_equals_growth_rate(self, monkeypatch):
+        """Terminal value divides by (discount_rate - growth): equal rates
+        must not raise ZeroDivisionError, just fail to produce a valuation."""
+        year = pd.Timestamp('2023-12-31')
+        cash_flow = pd.DataFrame({year: [100.0]}, index=['Free Cash Flow'])
+        stock = _make_stock_with_financials(
+            monkeypatch, info={'sharesOutstanding': 10.0}, cash_flow=cash_flow,
+        )
+        assert stock.dcf_valuation(discount_rate=0.05, perpetual_growth=0.05) is None
+
+
+class TestRelativeValuation:
+    def test_combines_base_and_peer_metrics(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={'trailingPE': 20.0})
+        result = stock.relative_valuation(['PEER1', 'PEER2'])
+        assert result['base_company']['pe_ratio'] == 20.0
+        assert set(result['peers']) == {'PEER1', 'PEER2'}
+        assert result['peers']['PEER1']['pe_ratio'] == 20.0  # fake Ticker returns the same info for every symbol
+
+    def test_a_failing_peer_does_not_break_the_others(self, monkeypatch):
+        stock = _make_stock_analysis(monkeypatch, info={'trailingPE': 20.0})
+
+        calls = {'n': 0}
+        real_init = StockAnalysis.__init__
+
+        def flaky_init(self, ticker_symbol):
+            calls['n'] += 1
+            if ticker_symbol == 'BAD':
+                raise ValueError('simulated fetch failure')
+            real_init(self, ticker_symbol)
+
+        monkeypatch.setattr(StockAnalysis, '__init__', flaky_init)
+        result = stock.relative_valuation(['GOOD', 'BAD'])
+        assert result['peers']['BAD'] == 'Error fetching data'
+        assert result['peers']['GOOD']['pe_ratio'] == 20.0  # fake Ticker returns the same info for every symbol
+
+
+class TestComprehensiveAnalysis:
+    def test_assembles_every_section(self, monkeypatch):
+        info = {
+            'longName': 'Test Corp', 'sector': 'Technology', 'industry': 'Software',
+            'marketCap': 1_000_000, 'regularMarketPrice': 42.0,
+            'fiftyTwoWeekHigh': 50.0, 'fiftyTwoWeekLow': 30.0,
+            'recommendationKey': 'buy', 'targetMeanPrice': 55.0, 'numberOfAnalystOpinions': 12,
+            'dividendYield': None,
+        }
+        stock = _make_stock_with_financials(monkeypatch, info=info)
+        results = stock.comprehensive_analysis()
+
+        assert results['basic_info']['name'] == 'Test Corp'
+        assert results['basic_info']['sector'] == 'Technology'
+        assert results['analyst_data']['recommendation'] == 'buy'
+        for section in ('performance_metrics', 'technical_indicators', 'valuation_ratios',
+                         'profitability_metrics', 'dividend_analysis'):
+            assert section in results
+        assert results['dcf_valuation'] is None  # no financials provided
+        assert stock.analysis_results is results
+
+    def test_falls_back_to_symbol_when_long_name_is_missing(self, monkeypatch):
+        stock = _make_stock_with_financials(monkeypatch, info={'dividendYield': None})
+        results = stock.comprehensive_analysis()
+        assert results['basic_info']['name'] == 'TEST'

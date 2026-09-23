@@ -88,6 +88,32 @@ volatility and drawdown, for a risk-adjusted result indistinguishable from the
 rest. Surfacing this kind of result - rather than only ever showing a
 favorable point estimate - is the whole point of validating out-of-sample.
 
+That "no significant difference" result is itself a consequence of the five
+picks being correlated mega-cap tech (pairwise correlation 0.23-0.56) - there's
+limited diversification for an optimizer to exploit. Re-running the identical
+methodology on a genuinely diversified basket (SPY, BND, GLD, VNQ - stocks,
+bonds, gold, REITs; pairwise correlation 0.16-0.66) surfaces a result that
+*is* statistically significant:
+
+| Strategy | Ann. Return | Ann. Volatility | Sharpe (95% CI) | Max Drawdown | Turnover / yr |
+|---|---|---|---|---|---|
+| Tangency (max Sharpe) | 12.8% | 15.4% | 0.57 [-0.31, 1.58] | -25.4% | 97% |
+| Minimum Variance | 2.7% | 6.4% | -0.20 [-1.07, 0.78] | -18.1% | 22% |
+| Equal Weight | 8.7% | 10.9% | 0.43 [-0.45, 1.45] | -21.0% | 8% |
+| SPY (Buy & Hold) | 13.4% | 17.2% | 0.54 [-0.25, 1.57] | -24.5% | 0% |
+
+Minimum Variance's Sharpe ratio is significantly *worse* than Equal Weight's:
+ΔSharpe -0.63, 95% CI [-1.15, -0.15] - the interval excludes zero, and this
+holds at 0, 10, and 25 bps of transaction cost, so it isn't a cost artifact.
+By leaning heavily into the lowest-volatility asset (bonds), the
+minimum-variance objective did exactly what it was asked to do - it achieved
+the lowest volatility (6.4%) and the shallowest drawdown (-18.1%) of any
+strategy - but gave up enough return in the process (2.7% annualized, versus
+8.7% for equal weight) that its risk-adjusted return came out significantly
+worse, not better. That's the opposite of what "minimum variance" intuitively
+promises, and it's only visible because the comparison is bootstrapped rather
+than read off a single point estimate.
+
 ## Features
 
 - **Portfolio optimization**: minimum-variance and tangency (max Sharpe)
@@ -125,8 +151,11 @@ favorable point estimate - is the whole point of validating out-of-sample.
 - **Per-user accounts**: each user registers, logs in, and only ever sees
   and manages their own portfolios - plus a one-click **Try Demo** login
   (`flask seed-demo-user`) for exploring without registering
-- **Caching**: a TTL cache in front of the Yahoo Finance API so repeated
-  page views don't re-fetch and re-render on every request
+- **Caching**: a TTL cache in front of the Yahoo Finance API, tracking real
+  hit/miss counts rather than assuming an effect - measured at an 80% hit
+  rate for 5 repeat views of the same portfolio (4 of 5 batched price fetches
+  and 4 of 5 risk-free-rate fetches avoided), cutting fetch time from ~540ms
+  to under 1ms for a cached view
 - **CSRF protection** on every state-changing request (Flask-WTF), and a
   hardened `SECRET_KEY` requirement outside debug/testing mode
 
@@ -151,7 +180,7 @@ portfolio_optimizer/
 ├── portfolio_service.py  # Orchestrates fetch -> analyze -> store
 └── stock_analysis.py     # Single-stock fundamental/technical analysis
 migrations/               # Alembic schema migrations (Flask-Migrate)
-tests/                    # pytest suite (247 tests)
+tests/                    # pytest suite (274 tests)
 ```
 
 ## Tech stack
@@ -194,18 +223,22 @@ registration and explore two pre-loaded sample portfolios immediately.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -v
+pytest -v                                              # 274 tests
+pytest --cov=portfolio_optimizer --cov-report=term-missing   # 93% line coverage
 ```
 
-247 tests cover the optimization math (including regression tests for a
-handful of real bugs found along the way — a tangency-weight sign flip, a
-risk-free-rate unit mismatch, a `None` dividend yield crash), the exact
-efficient frontier (bounds, monotonicity, dominated-region exclusion), the
-backtest engine's no-lookahead guarantee, transaction-cost accounting and
-bootstrap coverage, chart rendering (including concurrent renders),
-weight-history snapshot persistence, caching, per-user access control, and
-CSRF protection (verified end-to-end with it explicitly turned back on), all
-with `yfinance` mocked so the suite runs fully offline.
+274 tests (93% line coverage on the `portfolio_optimizer` package) cover the
+optimization math (including regression tests for a handful of real bugs
+found along the way — a tangency-weight sign flip, a risk-free-rate unit
+mismatch, a `None` dividend yield crash), the exact efficient frontier
+(bounds, monotonicity, dominated-region exclusion), the backtest engine's
+no-lookahead guarantee, transaction-cost accounting and bootstrap coverage
+(validated at ≥85% empirical coverage against a known ground-truth Sharpe
+ratio across 150 simulated trials), chart rendering (including concurrent
+renders), weight-history snapshot persistence, cache hit-rate accounting,
+per-user access control, and CSRF protection (verified end-to-end with it
+explicitly turned back on), all with `yfinance` mocked so the suite runs
+fully offline.
 
 ## Deploying to Render (free tier)
 
